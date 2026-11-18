@@ -77,9 +77,37 @@ class QuestionAnsweringAgent:
             except Exception as e:
                 logger.warning(f"On-demand targeted search error: {e}")
 
-        # If no decisions found at all
+        # If no decisions found at all, call Gemini for intelligent architectural perspective
         if not top_decisions:
-            # Check what decisions DO exist in this repo to provide helpful guidance
+            logger.info(f"No direct decisions found for '{question}'. Calling Gemini for architectural context.")
+            
+            fallback_prompt = f"""You are DecisionTrail's Senior Technical Architect.
+The user is asking an engineering question in the context of the repository '{repo.full_name}' (Description: {repo.description or 'Open source software'}).
+
+Our repository project memory search found NO specific internal decision or discussion thread matching this question.
+
+YOUR MISSION:
+1. Clarify honestly upfront:
+   "No specific historical engineering decision was recorded in **{repo.full_name}** regarding '{question}'."
+2. Provide an intelligent, helpful architectural and technical explanation:
+   - Explain why this project might or might not use/discuss this technology based on its domain.
+   - Explain the core technical concepts, trade-offs, or standard industry practices related to the question.
+   - Keep it concise, structured, and developer-friendly.
+"""
+            llm_fallback_answer = await generate_text(fallback_prompt)
+
+            if llm_fallback_answer and llm_fallback_answer.strip():
+                return QuestionResponse(
+                    question=question,
+                    answer=llm_fallback_answer.strip(),
+                    confidence="general_knowledge",
+                    evidence_found=False,
+                    decisions_used=[],
+                    citations=[],
+                    search_strategy="ai_general_knowledge",
+                )
+
+            # Rule-based fallback if LLM is unavailable
             existing_sample = db.query(Decision).filter(Decision.repo_id == repo.id).limit(4).all()
             if existing_sample:
                 topics = set()

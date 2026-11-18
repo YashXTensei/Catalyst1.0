@@ -14,6 +14,7 @@ import {
   Info
 } from 'lucide-react';
 import apiService from '../services/api';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 export default function PRIntelligencePage({ currentRepo }) {
   const [prNumber, setPrNumber] = useState('');
@@ -182,7 +183,7 @@ export default function PRIntelligencePage({ currentRepo }) {
             {/* Architectural Summary */}
             <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs text-slate-300 leading-relaxed">
               <span className="font-semibold text-white block mb-1">Architectural Footprint:</span>
-              {result.summary}
+              <MarkdownRenderer content={result.summary} />
             </div>
 
             {/* Changed Files */}

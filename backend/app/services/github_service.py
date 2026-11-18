@@ -1,4 +1,5 @@
 import re
+import asyncio
 import logging
 from typing import Tuple, Dict, Any, List, Optional
 import httpx
@@ -84,21 +85,31 @@ class GitHubService:
         Crucial for the Question-First architecture.
         """
         url = f"{self.BASE_URL}/search/issues"
-        q = f"repo:{owner}/{repo} {query}"
-        params = {"q": q, "per_page": min(limit, 30), "sort": "relevance"}
+        per_page = min(limit, 15)
 
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(url, headers=self._get_headers(), params=params)
-            if response.status_code != 200:
-                logger.warning(f"GitHub search failed ({response.status_code}): {response.text}")
-                return []
+            headers = self._get_headers()
+            r_issues, r_prs = await asyncio.gather(
+                client.get(url, headers=headers, params={"q": f"repo:{owner}/{repo} is:issue {query}", "per_page": per_page, "sort": "relevance"}),
+                client.get(url, headers=headers, params={"q": f"repo:{owner}/{repo} is:pr {query}", "per_page": per_page, "sort": "relevance"})
+            )
 
-            items = response.json().get("items", [])
+            items = []
+            if r_issues.status_code == 200:
+                items.extend(r_issues.json().get("items", []))
+            if r_prs.status_code == 200:
+                items.extend(r_prs.json().get("items", []))
+
             results = []
+            seen_ids = set()
             for item in items:
+                sid = str(item.get("id"))
+                if sid in seen_ids:
+                    continue
+                seen_ids.add(sid)
                 is_pr = "pull_request" in item
                 results.append({
-                    "source_id": str(item.get("id")),
+                    "source_id": sid,
                     "number": item.get("number"),
                     "title": item.get("title", ""),
                     "body": item.get("body") or "",
@@ -108,7 +119,7 @@ class GitHubService:
                     "discussion_type": "pull_request" if is_pr else "issue",
                     "created_at_source": item.get("created_at"),
                 })
-            return results
+            return results[:limit]
 
     async def fetch_issues_and_prs(
         self, owner: str, repo: str, page: int = 1, per_page: int = 20, state: str = "all"
@@ -139,6 +150,38 @@ class GitHubService:
                     "created_at_source": item.get("created_at"),
                 })
             return discussions
+
+    async def fetch_pure_issues(
+        self, owner: str, repo: str, limit: int = 30
+    ) -> List[Dict[str, Any]]:
+        """
+        Explicitly fetches pure issues (excluding pull requests) via search API.
+        Ensures issues are not crowded out in repositories with heavy PR activity.
+        """
+        url = f"{self.BASE_URL}/search/issues"
+        params = {"q": f"repo:{owner}/{repo} is:issue", "sort": "updated", "per_page": min(limit, 50)}
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.get(url, headers=self._get_headers(), params=params)
+            if response.status_code != 200:
+                logger.warning(f"Failed to fetch pure issues: {response.text}")
+                return []
+
+            items = response.json().get("items", [])
+            issues = []
+            for item in items:
+                issues.append({
+                    "source_id": str(item.get("id")),
+                    "number": item.get("number"),
+                    "title": item.get("title", ""),
+                    "body": item.get("body") or "",
+                    "url": item.get("html_url", ""),
+                    "author": item.get("user", {}).get("login", ""),
+                    "state": item.get("state", "open"),
+                    "discussion_type": "issue",
+                    "created_at_source": item.get("created_at"),
+                })
+            return issues
 
     async def fetch_comments(self, owner: str, repo: str, issue_number: int, limit: int = 15) -> List[Dict[str, Any]]:
         """Fetches comments for an issue or PR to gather rich discussion context."""

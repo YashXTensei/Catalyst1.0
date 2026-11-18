@@ -13,7 +13,9 @@ import {
   ChevronUp,
   FileCode,
   Tag,
-  Layers
+  Layers,
+  GitPullRequest,
+  MessageSquare
 } from 'lucide-react';
 import apiService from '../services/api';
 
@@ -22,6 +24,8 @@ export default function DecisionExplorerPage({ currentRepo }) {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+  const [counts, setCounts] = useState({ total: 0, prs: 0, issues: 0 });
   const [expandedId, setExpandedId] = useState(null);
 
   const fetchDecisions = async () => {
@@ -31,10 +35,16 @@ export default function DecisionExplorerPage({ currentRepo }) {
       const params = {};
       if (searchTerm.trim()) params.search = searchTerm.trim();
       if (statusFilter) params.status = statusFilter;
+      if (sourceFilter) params.source_type = sourceFilter;
       const data = await apiService.getDecisions(currentRepo.id, params);
       setDecisions(data.decisions || []);
+      setCounts({
+        total: data.total ?? (data.decisions ? data.decisions.length : 0),
+        prs: data.total_pr_decisions ?? 0,
+        issues: data.total_issue_decisions ?? 0,
+      });
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load decisions:', err);
     } finally {
       setLoading(false);
     }
@@ -42,7 +52,7 @@ export default function DecisionExplorerPage({ currentRepo }) {
 
   useEffect(() => {
     fetchDecisions();
-  }, [currentRepo?.id, statusFilter]);
+  }, [currentRepo?.id, statusFilter, sourceFilter]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
@@ -99,10 +109,18 @@ export default function DecisionExplorerPage({ currentRepo }) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800">
         <div>
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <h1 className="text-2xl font-bold text-white tracking-tight">Decision Explorer</h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              {decisions.length} recorded
+              {counts.total || decisions.length} recorded
+            </span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center space-x-1">
+              <GitPullRequest className="h-3 w-3" />
+              <span>{counts.prs} PRs</span>
+            </span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1">
+              <MessageSquare className="h-3 w-3" />
+              <span>{counts.issues} Issues</span>
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -110,7 +128,7 @@ export default function DecisionExplorerPage({ currentRepo }) {
           </p>
         </div>
 
-        {/* Search & Filter Bar */}
+        {/* Search & Status Filter */}
         <div className="flex flex-col sm:flex-row items-center gap-3">
           <form onSubmit={handleSearchSubmit} className="relative w-full sm:w-64">
             <Search className="h-4 w-4 text-slate-400 absolute left-3 top-3 pointer-events-none" />
@@ -136,6 +154,45 @@ export default function DecisionExplorerPage({ currentRepo }) {
             <option value="uncertain">Uncertain</option>
           </select>
         </div>
+      </div>
+
+      {/* Source Type Filter Tabs */}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setSourceFilter('')}
+          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+            sourceFilter === ''
+              ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+              : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800 hover:border-slate-700'
+          }`}
+        >
+          All Decisions ({counts.total || decisions.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setSourceFilter('pr')}
+          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+            sourceFilter === 'pr'
+              ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+              : 'bg-slate-900 text-purple-300 hover:text-white border border-purple-500/20 hover:border-purple-500/40'
+          }`}
+        >
+          <GitPullRequest className="h-3.5 w-3.5" />
+          <span>Pull Requests ({counts.prs})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setSourceFilter('issue')}
+          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+            sourceFilter === 'issue'
+              ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+              : 'bg-slate-900 text-emerald-300 hover:text-white border border-emerald-500/20 hover:border-emerald-500/40'
+          }`}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span>Issues ({counts.issues})</span>
+        </button>
       </div>
 
       {/* Decisions List */}
@@ -180,11 +237,23 @@ export default function DecisionExplorerPage({ currentRepo }) {
                       href={dec.source_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-xs font-mono text-slate-200 transition-colors"
-                      title="Open GitHub source"
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-xs font-mono transition-colors"
+                      title="Open source in GitHub"
                     >
-                      <span>Discussion</span>
-                      <ExternalLink className="h-3.5 w-3.5" />
+                      {dec.source_url?.includes('/pull/') ? (
+                        <span className="flex items-center space-x-1 text-purple-300 font-semibold">
+                          <GitPullRequest className="h-3.5 w-3.5 text-purple-400" />
+                          <span>PR #{dec.source_url.split('/pull/')[1]?.split(/[#/?]/)[0]}</span>
+                        </span>
+                      ) : dec.source_url?.includes('/issues/') ? (
+                        <span className="flex items-center space-x-1 text-emerald-300 font-semibold">
+                          <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
+                          <span>Issue #{dec.source_url.split('/issues/')[1]?.split(/[#/?]/)[0]}</span>
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">Discussion</span>
+                      )}
+                      <ExternalLink className="h-3 w-3 text-slate-400 ml-0.5" />
                     </a>
 
                     <button

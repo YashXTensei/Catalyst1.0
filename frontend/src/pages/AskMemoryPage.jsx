@@ -15,6 +15,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import apiService from '../services/api';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 const DEFAULT_QUESTIONS = [
   "What were the key architectural decisions made recently?",
@@ -195,13 +196,17 @@ export default function AskMemoryPage({ currentRepo }) {
                     </div>
                     <span className="text-xs font-bold text-slate-200">DecisionTrail Intelligence</span>
                     {msg.strategy && (
-                      <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-400">
-                        {msg.strategy}
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
+                        msg.strategy === 'ai_general_knowledge'
+                          ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}>
+                        {msg.strategy === 'ai_general_knowledge' ? 'Architectural Insight' : msg.strategy}
                       </span>
                     )}
-                    {!msg.evidenceFound && (
+                    {msg.strategy === 'ai_general_knowledge' && (
                       <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        No Direct Evidence
+                        No Direct Repo ADR
                       </span>
                     )}
                   </div>
@@ -214,9 +219,9 @@ export default function AskMemoryPage({ currentRepo }) {
                   </button>
                 </div>
 
-                {/* Answer body */}
-                <div className="prose prose-invert max-w-none text-sm text-slate-200 leading-relaxed whitespace-pre-line">
-                  {msg.content}
+                {/* Answer body with Markdown formatting */}
+                <div className="max-w-none text-sm text-slate-200">
+                  <MarkdownRenderer content={msg.content} />
                 </div>
 
                 {/* Citations and Evidence */}

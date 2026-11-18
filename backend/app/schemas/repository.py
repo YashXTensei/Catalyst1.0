@@ -33,5 +33,7 @@ class RepositoryStatusResponse(BaseModel):
     indexing_status: str
     indexing_progress: str
     total_discussions: int
+    total_prs: int = 0
+    total_issues: int = 0
     total_decisions: int
     recent_decisions: List[dict] = []

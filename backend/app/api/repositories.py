@@ -110,6 +110,66 @@ async def run_background_indexing(repo_id: int, max_pages: int = 2):
                 repo.total_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
                 db.commit()
 
+        # Dedicated fetch for pure issues to ensure issues are not drowned out by high PR volume
+        repo.indexing_progress = "Scanning dedicated GitHub issues and discussions..."
+        db.commit()
+        try:
+            pure_issues = await github_service.fetch_pure_issues(owner=repo.owner, repo=repo.name, limit=25)
+            for disc in pure_issues:
+                source_id = disc.get("source_id")
+                existing_disc = db.query(Discussion).filter(
+                    Discussion.repo_id == repo.id,
+                    Discussion.source_id == source_id
+                ).first()
+
+                if not existing_disc:
+                    total_fetched += 1
+                    existing_disc = Discussion(
+                        repo_id=repo.id,
+                        source_id=source_id,
+                        discussion_type="issue",
+                        number=disc.get("number"),
+                        title=disc.get("title", ""),
+                        body=disc.get("body", ""),
+                        author=disc.get("author", ""),
+                        url=disc.get("url", ""),
+                        state=disc.get("state", "open"),
+                    )
+                    db.add(existing_disc)
+                    db.commit()
+                    db.refresh(existing_disc)
+
+                    comments = []
+                    if disc.get("number"):
+                        try:
+                            comments = await github_service.fetch_comments(repo.owner, repo.name, disc["number"], limit=5)
+                        except Exception:
+                            pass
+
+                    extracted_decisions = await decision_extractor.extract_from_discussion(
+                        title=disc.get("title", ""),
+                        body=disc.get("body", ""),
+                        source_url=disc.get("url", ""),
+                        comments=comments,
+                        source_type="github",
+                    )
+                    for ed in extracted_decisions:
+                        d_saved = await memory_service.store_decision(
+                            db=db,
+                            repo_id=repo.id,
+                            decision_data=ed,
+                            discussion_id=existing_disc.id,
+                            source_id=f"{source_id}_{ed.get('decision', '')[:20]}"
+                        )
+                        if d_saved:
+                            total_extracted += 1
+
+                    repo.total_discussions = total_fetched
+                    repo.total_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
+                    db.commit()
+        except Exception as e:
+            logger.warning(f"Error fetching dedicated issues: {e}")
+
         repo.indexing_status = "completed"
         repo.indexing_progress = f"Indexing completed. Processed {total_fetched} discussions, extracted {total_extracted} decisions."
         db.commit()
@@ -200,12 +260,24 @@ def get_repository_status(repo_id: int, db: Session = Depends(get_db)):
         Decision.repo_id == repo_id
     ).order_by(Decision.created_at.desc()).limit(5).all()
 
+    total_prs = db.query(Discussion).filter(
+        Discussion.repo_id == repo_id,
+        Discussion.discussion_type == "pull_request"
+    ).count()
+
+    total_issues = db.query(Discussion).filter(
+        Discussion.repo_id == repo_id,
+        Discussion.discussion_type == "issue"
+    ).count()
+
     return {
         "repo_id": repo.id,
         "full_name": repo.full_name,
         "indexing_status": repo.indexing_status,
         "indexing_progress": repo.indexing_progress,
         "total_discussions": repo.total_discussions,
+        "total_prs": total_prs,
+        "total_issues": total_issues,
         "total_decisions": repo.total_decisions,
         "recent_decisions": [
             {
@@ -244,13 +316,26 @@ async def trigger_index(
 def get_repository_decisions(
     repo_id: int,
     status: Optional[str] = Query(None, description="Filter by status (accepted, rejected, etc.)"),
+    source_type: Optional[str] = Query(None, description="Filter by source type ('pr', 'issue', 'all')"),
     search: Optional[str] = Query(None, description="Filter by keyword"),
     db: Session = Depends(get_db)
 ):
     """Retrieves decisions extracted for this repository with optional filtering."""
-    query = db.query(Decision).filter(Decision.repo_id == repo_id)
+    base_query = db.query(Decision).filter(Decision.repo_id == repo_id)
+
+    total_pr_decisions = base_query.filter(Decision.source_url.ilike("%/pull/%")).count()
+    total_issue_decisions = base_query.filter(Decision.source_url.ilike("%/issues/%")).count()
+    total_count = base_query.count()
+
+    query = base_query
     if status:
         query = query.filter(Decision.status.ilike(status))
+    if source_type:
+        st = source_type.lower()
+        if st in ("pr", "pull", "pull_request"):
+            query = query.filter(Decision.source_url.ilike("%/pull/%"))
+        elif st in ("issue", "issues"):
+            query = query.filter(Decision.source_url.ilike("%/issues/%"))
     if search:
         search_filter = f"%{search}%"
         query = query.filter(
@@ -260,7 +345,9 @@ def get_repository_decisions(
 
     decisions = query.order_by(Decision.created_at.desc()).all()
     return DecisionListResponse(
-        total=len(decisions),
+        total=total_count,
+        total_pr_decisions=total_pr_decisions,
+        total_issue_decisions=total_issue_decisions,
         decisions=[DecisionResponse.model_validate(d) for d in decisions]
     )
 

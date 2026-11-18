@@ -12,7 +12,8 @@ import {
   FileText, 
   ArrowRight,
   ShieldCheck,
-  Star
+  Star,
+  GitPullRequest
 } from 'lucide-react';
 import apiService from '../services/api';
 
@@ -98,7 +99,7 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
           <p className="text-sm text-slate-400 max-w-2xl">
             {currentRepo.description || 'No description provided by repository.'}
           </p>
-          <div className="flex items-center space-x-4 text-xs text-slate-400 pt-1">
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1">
             <span className="flex items-center space-x-1">
               <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20" />
               <span>{currentRepo.stars?.toLocaleString() || 0} stars</span>
@@ -106,6 +107,14 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
             <span className="flex items-center space-x-1">
               <GitBranch className="h-3.5 w-3.5 text-slate-400" />
               <span>branch: {currentRepo.default_branch || 'main'}</span>
+            </span>
+            <span className="flex items-center space-x-1 text-purple-400 font-mono">
+              <GitPullRequest className="h-3.5 w-3.5" />
+              <span>{statusData?.total_prs ?? 0} PRs</span>
+            </span>
+            <span className="flex items-center space-x-1 text-emerald-400 font-mono">
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span>{statusData?.total_issues ?? 0} Issues</span>
             </span>
           </div>
         </div>
@@ -166,63 +175,88 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
       </div>
 
       {/* Stats Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-md">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* Pull Requests Card */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md hover:border-purple-500/30 transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Discussions Scanned
+            <span className="text-xs font-semibold uppercase tracking-wider text-purple-400">
+              Pull Requests
             </span>
-            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
+            <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
+              <GitPullRequest className="h-5 w-5" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline space-x-2">
+            <span className="text-3xl font-bold text-white font-mono">
+              {statusData?.total_prs ?? 0}
+            </span>
+            <span className="text-xs text-purple-400/80 font-mono">scanned</span>
+          </div>
+          <p className="text-xs text-slate-400 mt-2">
+            Merged & open PRs analyzed for code changes and discussions
+          </p>
+        </div>
+
+        {/* Issues Card */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md hover:border-emerald-500/30 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+              GitHub Issues
+            </span>
+            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
               <MessageSquare className="h-5 w-5" />
             </div>
           </div>
-          <div className="mt-4 flex items-baseline space-x-2">
+          <div className="mt-3 flex items-baseline space-x-2">
             <span className="text-3xl font-bold text-white font-mono">
-              {statusData?.total_discussions ?? currentRepo.total_discussions}
+              {statusData?.total_issues ?? 0}
             </span>
-            <span className="text-xs text-slate-500">issues & PRs</span>
+            <span className="text-xs text-emerald-400/80 font-mono">scanned</span>
           </div>
-          <p className="text-xs text-slate-500 mt-2">
-            Historical discussions analyzed for technical context
+          <p className="text-xs text-slate-400 mt-2">
+            Bug reports, proposals & feature design discussions analyzed
           </p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-md">
+        {/* Extracted Decisions Card */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md hover:border-indigo-500/30 transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <span className="text-xs font-semibold uppercase tracking-wider text-indigo-400">
               Decisions Extracted
             </span>
-            <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+            <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
               <Database className="h-5 w-5" />
             </div>
           </div>
-          <div className="mt-4 flex items-baseline space-x-2">
+          <div className="mt-3 flex items-baseline space-x-2">
             <span className="text-3xl font-bold text-emerald-400 font-mono">
               {statusData?.total_decisions ?? currentRepo.total_decisions}
             </span>
-            <span className="text-xs text-slate-500">structured memories</span>
+            <span className="text-xs text-slate-500">memories</span>
           </div>
-          <p className="text-xs text-slate-500 mt-2">
-            Vectorized with alternatives, trade-offs, and source links
+          <p className="text-xs text-slate-400 mt-2">
+            Vectorized with alternatives, reasoning, and evidence citations
           </p>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-md">
+        {/* Architecture Protection Card */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-md hover:border-cyan-500/30 transition-all">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Architecture Protection
+            <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400">
+              Drift & Protection
             </span>
             <div className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400">
               <ShieldCheck className="h-5 w-5" />
             </div>
           </div>
-          <div className="mt-4 flex items-baseline space-x-2">
+          <div className="mt-3 flex items-baseline space-x-2">
             <span className="text-3xl font-bold text-cyan-400 font-mono">
               Active
             </span>
+            <span className="text-xs text-cyan-400/80 font-mono">ready</span>
           </div>
-          <p className="text-xs text-slate-500 mt-2">
-            Automated conflict & drift detection ready for pull requests
+          <p className="text-xs text-slate-400 mt-2">
+            Automated conflict & drift intelligence on incoming PR diffs
           </p>
         </div>
       </div>
@@ -270,10 +304,22 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
                     href={dec.source_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="flex items-center space-x-1 text-xs text-slate-400 hover:text-indigo-300 font-mono transition-colors"
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded bg-slate-800/80 hover:bg-slate-700 text-xs text-slate-300 hover:text-white font-mono transition-colors"
                   >
-                    <span>Source</span>
-                    <ExternalLink className="h-3.5 w-3.5" />
+                    {dec.source_url?.includes('/pull/') ? (
+                      <span className="flex items-center space-x-1 text-purple-300">
+                        <GitPullRequest className="h-3 w-3 text-purple-400" />
+                        <span>PR #{dec.source_url.split('/pull/')[1]?.split(/[#/?]/)[0]}</span>
+                      </span>
+                    ) : dec.source_url?.includes('/issues/') ? (
+                      <span className="flex items-center space-x-1 text-emerald-300">
+                        <MessageSquare className="h-3 w-3 text-emerald-400" />
+                        <span>Issue #{dec.source_url.split('/issues/')[1]?.split(/[#/?]/)[0]}</span>
+                      </span>
+                    ) : (
+                      <span>Source</span>
+                    )}
+                    <ExternalLink className="h-3 w-3 ml-1" />
                   </a>
                 </div>
               </div>

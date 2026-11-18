@@ -1,6 +1,6 @@
 from datetime import datetime
-from typing import List, Optional
-from pydantic import BaseModel, Field
+from typing import List, Optional, Any
+from pydantic import BaseModel, Field, field_validator
 
 
 class DecisionBase(BaseModel):
@@ -13,6 +13,17 @@ class DecisionBase(BaseModel):
     code_references: List[str] = Field(default_factory=list, description="Code paths or files identified from discussion")
     evidence: List[str] = Field(default_factory=list, description="Exact excerpts supporting this decision")
     source_url: str = Field(..., description="Original GitHub or source URL")
+
+    @field_validator("evidence", "reasoning", "rejected_alternatives", "affected_components", "code_references", mode="before")
+    @classmethod
+    def ensure_list_of_strings(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        if isinstance(v, (list, tuple, set)):
+            return [str(item) for item in v if item]
+        return []
 
 
 class DecisionCreate(DecisionBase):
@@ -38,4 +49,6 @@ class DecisionResponse(DecisionBase):
 
 class DecisionListResponse(BaseModel):
     total: int
+    total_pr_decisions: int = 0
+    total_issue_decisions: int = 0
     decisions: List[DecisionResponse]
