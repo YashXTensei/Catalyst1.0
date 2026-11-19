@@ -20,6 +20,9 @@ class RepositoryResponse(BaseModel):
     indexing_progress: str
     total_discussions: int
     total_decisions: int
+    total_pages_fetched: int = 0
+    total_records_fetched: int = 0
+    indexing_next_page: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -36,4 +39,7 @@ class RepositoryStatusResponse(BaseModel):
     total_prs: int = 0
     total_issues: int = 0
     total_decisions: int
+    total_pages_fetched: int = 0
+    total_records_fetched: int = 0
+    indexing_next_page: Optional[int] = None
     recent_decisions: List[dict] = []

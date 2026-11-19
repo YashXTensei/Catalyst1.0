@@ -10,7 +10,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine, Base, ensure_indexing_schema
 from app.api import health, repositories
 import app.models  # ensure models are loaded for Base.metadata.create_all
 
@@ -44,6 +44,7 @@ app.include_router(repositories.router)
 def on_startup():
     logger.info("Initializing DecisionTrail database tables...")
     Base.metadata.create_all(bind=engine)
+    ensure_indexing_schema()
     logger.info("DecisionTrail API initialized successfully.")
 
 

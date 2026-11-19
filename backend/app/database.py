@@ -1,6 +1,6 @@
 import os
 import logging
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from app.config import settings
 
@@ -50,6 +50,30 @@ except Exception as e:
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+
+def ensure_indexing_schema() -> None:
+    """Add incremental-indexing fields to databases created before this release."""
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "discussions" in tables:
+        columns = {column["name"] for column in inspector.get_columns("discussions")}
+        if "decision_content_hash" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE discussions ADD COLUMN decision_content_hash VARCHAR(64)"))
+            logger.info("Added discussions.decision_content_hash for incremental indexing.")
+    if "repositories" in tables:
+        columns = {column["name"] for column in inspector.get_columns("repositories")}
+        additions = {
+            "total_pages_fetched": "INTEGER DEFAULT 0",
+            "total_records_fetched": "INTEGER DEFAULT 0",
+            "indexing_next_page": "INTEGER",
+        }
+        for name, definition in additions.items():
+            if name not in columns:
+                with engine.begin() as connection:
+                    connection.execute(text(f"ALTER TABLE repositories ADD COLUMN {name} {definition}"))
+                logger.info("Added repositories.%s for indexing progress.", name)
 
 
 def get_db():

@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     github_token: Optional[str] = Field(
         default_factory=lambda: os.getenv("GITHUB_TOKEN")
     )
+    indexing_max_pages: int = Field(
+        default_factory=lambda: max(1, int(os.getenv("INDEXING_MAX_PAGES", "100")))
+    )
+    indexing_page_size: int = Field(
+        default_factory=lambda: min(100, max(1, int(os.getenv("INDEXING_PAGE_SIZE", "50"))))
+    )
 
     # CORS
     cors_origins: str = Field(

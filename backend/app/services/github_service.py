@@ -1,11 +1,33 @@
 import re
 import asyncio
 import logging
+from dataclasses import dataclass, field
 from typing import Tuple, Dict, Any, List, Optional
 import httpx
+from urllib.parse import parse_qs, urlparse
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DiscussionPage:
+    """One GitHub issues page plus pagination and failure metadata."""
+    discussions: List[Dict[str, Any]] = field(default_factory=list)
+    next_page: Optional[int] = None
+    error: Optional[str] = None
+    rate_limited: bool = False
+
+
+def next_page_from_links(links: Dict[str, Dict[str, str]]) -> Optional[int]:
+    """Read GitHub's ``rel=next`` URL without inferring page counts."""
+    next_link = links.get("next", {}).get("url")
+    if not next_link:
+        return None
+    next_values = parse_qs(urlparse(next_link).query).get("page", [])
+    if next_values and next_values[0].isdigit():
+        return int(next_values[0])
+    return None
 
 
 class GitHubService:
@@ -121,18 +143,29 @@ class GitHubService:
                 })
             return results[:limit]
 
-    async def fetch_issues_and_prs(
+    async def fetch_issues_and_prs_page(
         self, owner: str, repo: str, page: int = 1, per_page: int = 20, state: str = "all"
-    ) -> List[Dict[str, Any]]:
-        """Fetches issues and PRs with pagination."""
+    ) -> DiscussionPage:
+        """Fetch one issues page while preserving GitHub's Link pagination."""
         url = f"{self.BASE_URL}/repos/{owner}/{repo}/issues"
         params = {"state": state, "sort": "updated", "direction": "desc", "page": page, "per_page": per_page}
 
         async with httpx.AsyncClient(timeout=20.0) as client:
-            response = await client.get(url, headers=self._get_headers(), params=params)
+            try:
+                response = await client.get(url, headers=self._get_headers(), params=params)
+            except httpx.HTTPError as exc:
+                return DiscussionPage(error=f"GitHub request failed: {exc}")
+
             if response.status_code != 200:
-                logger.warning(f"Failed to fetch issues/PRs: {response.text}")
-                return []
+                reset_time = response.headers.get("x-ratelimit-reset", "unknown")
+                rate_limited = response.status_code in (403, 429)
+                error = (
+                    f"GitHub rate limit reached (reset: {reset_time})"
+                    if rate_limited
+                    else f"GitHub issues request failed ({response.status_code})"
+                )
+                logger.warning("%s", error)
+                return DiscussionPage(error=error, rate_limited=rate_limited)
 
             items = response.json()
             discussions = []
@@ -149,7 +182,20 @@ class GitHubService:
                     "discussion_type": "pull_request" if is_pr else "issue",
                     "created_at_source": item.get("created_at"),
                 })
-            return discussions
+            next_page = next_page_from_links(response.links)
+            if response.links.get("next") and next_page is None:
+                return DiscussionPage(
+                    discussions=discussions,
+                    error="GitHub returned an invalid next-page link",
+                )
+            return DiscussionPage(discussions=discussions, next_page=next_page)
+
+    async def fetch_issues_and_prs(
+        self, owner: str, repo: str, page: int = 1, per_page: int = 20, state: str = "all"
+    ) -> List[Dict[str, Any]]:
+        """Backward-compatible one-page fetch used by existing connectors."""
+        result = await self.fetch_issues_and_prs_page(owner, repo, page, per_page, state)
+        return result.discussions
 
     async def fetch_pure_issues(
         self, owner: str, repo: str, limit: int = 30

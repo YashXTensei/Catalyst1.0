@@ -22,6 +22,10 @@ class Discussion(Base):
     
     created_at_source = Column(DateTime, nullable=True)
     indexed_for_decisions = Column(Boolean, default=False)
+    # Hash of the title, body, and comments that were successfully extracted.
+    # It allows a later indexing pass to skip unchanged discussions while still
+    # reprocessing a discussion whose content has changed.
+    decision_content_hash = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Relationships

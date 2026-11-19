@@ -16,11 +16,14 @@ class Repository(Base):
     stars = Column(Integer, default=0)
     default_branch = Column(String(100), default="main")
 
-    # Indexing status: "idle", "indexing", "completed", "failed"
+    # Indexing status: "idle", "indexing", "completed", "partial", "failed"
     indexing_status = Column(String(50), default="idle", index=True)
     indexing_progress = Column(String(255), default="Ready to index")
     total_discussions = Column(Integer, default=0)
     total_decisions = Column(Integer, default=0)
+    total_pages_fetched = Column(Integer, default=0)
+    total_records_fetched = Column(Integer, default=0)
+    indexing_next_page = Column(Integer, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
