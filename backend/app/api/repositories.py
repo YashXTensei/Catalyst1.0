@@ -83,35 +83,48 @@ async def run_background_indexing(repo_id: int, max_pages: int = 2):
                     db.commit()
                     db.refresh(existing_disc)
 
-                # Fetch comments if significant issue/pr
-                comments = []
-                if disc.get("number"):
-                    try:
-                        comments = await github_service.fetch_comments(
-                            repo.owner, repo.name, disc["number"], limit=5
-                        )
-                    except Exception:
-                        pass
+                # Check if decisions already extracted for this discussion
+                has_decisions = db.query(Decision).filter(
+                    Decision.repo_id == repo.id,
+                    Decision.discussion_id == existing_disc.id
+                ).count() > 0
 
-                # Extract decisions
-                extracted_decisions = await decision_extractor.extract_from_discussion(
-                    title=disc.get("title", ""),
-                    body=disc.get("body", ""),
-                    source_url=disc.get("url", ""),
-                    comments=comments,
-                    source_type="github",
-                )
+                if not has_decisions:
+                    repo.indexing_progress = f"Scanning item {total_fetched}: {disc.get('title', '')[:35]}..."
+                    db.commit()
 
-                for ed in extracted_decisions:
-                    d_saved = await memory_service.store_decision(
-                        db=db,
-                        repo_id=repo.id,
-                        decision_data=ed,
-                        discussion_id=existing_disc.id,
-                        source_id=f"{source_id}_{ed.get('decision', '')[:20]}"
+                    # Fetch comments if significant issue/pr
+                    comments = []
+                    if disc.get("number"):
+                        try:
+                            comments = await github_service.fetch_comments(
+                                repo.owner, repo.name, disc["number"], limit=5
+                            )
+                        except Exception:
+                            pass
+
+                    # Extract decisions
+                    extracted_decisions = await decision_extractor.extract_from_discussion(
+                        title=disc.get("title", ""),
+                        body=disc.get("body", ""),
+                        source_url=disc.get("url", ""),
+                        comments=comments,
+                        source_type="github",
                     )
-                    if d_saved:
-                        total_extracted += 1
+
+                    for ed in extracted_decisions:
+                        d_saved = await memory_service.store_decision(
+                            db=db,
+                            repo_id=repo.id,
+                            decision_data=ed,
+                            discussion_id=existing_disc.id,
+                            source_id=f"{source_id}_{ed.get('decision', '')[:20]}"
+                        )
+                        if d_saved:
+                            total_extracted += 1
+                else:
+                    repo.indexing_progress = f"Verified existing memory: {disc.get('title', '')[:32]}..."
+                    db.commit()
 
                 # Update live progress
                 repo.total_discussions = total_fetched
@@ -147,6 +160,15 @@ async def run_background_indexing(repo_id: int, max_pages: int = 2):
                     db.commit()
                     db.refresh(existing_disc)
 
+                has_decisions = db.query(Decision).filter(
+                    Decision.repo_id == repo.id,
+                    Decision.discussion_id == existing_disc.id
+                ).count() > 0
+
+                if not has_decisions:
+                    repo.indexing_progress = f"Scanning issue: {disc.get('title', '')[:35]}..."
+                    db.commit()
+
                     comments = []
                     if disc.get("number"):
                         try:
@@ -171,15 +193,18 @@ async def run_background_indexing(repo_id: int, max_pages: int = 2):
                         )
                         if d_saved:
                             total_extracted += 1
-
-                    repo.total_discussions = total_fetched
-                    repo.total_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
+                else:
+                    repo.indexing_progress = f"Verified issue memory: {disc.get('title', '')[:32]}..."
                     db.commit()
+
+                repo.total_discussions = total_fetched
+                repo.total_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
+                db.commit()
         except Exception as e:
             logger.warning(f"Error fetching dedicated issues: {e}")
 
         repo.indexing_status = "completed"
-        repo.indexing_progress = f"Indexing completed. Processed {total_fetched} discussions, extracted {total_extracted} decisions."
+        repo.indexing_progress = f"Project memory active: {repo.total_decisions} decisions vectorized across {total_fetched} discussions"
         db.commit()
         logger.info(f"Completed indexing repo {repo.full_name}: {total_extracted} decisions extracted.")
     except Exception as e:
@@ -194,7 +219,7 @@ async def run_background_indexing(repo_id: int, max_pages: int = 2):
             repo = db.query(Repository).filter(Repository.id == repo_id).first()
             if repo and repo.indexing_status == "indexing":
                 repo.indexing_status = "completed" if (repo.total_decisions or 0) > 0 else "idle"
-                repo.indexing_progress = f"Indexing completed ({repo.total_decisions or 0} decisions indexed)"
+                repo.indexing_progress = f"Project memory active: {repo.total_decisions or 0} decisions vectorized across {repo.total_discussions or 0} discussions"
                 db.commit()
         except Exception:
             pass
@@ -208,7 +233,7 @@ def reset_repository_status(repo_id: int, db: Session = Depends(get_db)):
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     repo.indexing_status = "completed" if (repo.total_decisions or 0) > 0 else "idle"
-    repo.indexing_progress = f"Status reset. ({repo.total_decisions or 0} decisions indexed)"
+    repo.indexing_progress = f"Project memory active: {repo.total_decisions or 0} decisions vectorized across {repo.total_discussions or 0} discussions"
     db.commit()
     return {"message": "Repository indexing status reset successfully", "repo_id": repo.id}
 

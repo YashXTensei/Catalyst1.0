@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
   GitBranch, 
   Database, 
@@ -58,6 +58,11 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
   const [extractResult, setExtractResult] = useState(null);
   const [extractError, setExtractError] = useState(null);
 
+  const statusDataRef = useRef(statusData);
+  useEffect(() => {
+    statusDataRef.current = statusData;
+  }, [statusData]);
+
   const fetchStatus = async () => {
     if (!currentRepo) return;
     try {
@@ -75,14 +80,14 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
 
   useEffect(() => {
     fetchStatus();
-    // Poll status every 4 seconds if indexing
+    // Poll status every 2 seconds if indexing
     const interval = setInterval(() => {
-      if (statusData?.indexing_status === 'indexing') {
+      if (statusDataRef.current?.indexing_status === 'indexing') {
         fetchStatus();
       }
-    }, 4000);
+    }, 2000);
     return () => clearInterval(interval);
-  }, [currentRepo?.id, statusData?.indexing_status]);
+  }, [currentRepo?.id]);
 
   const handleTriggerIndex = async () => {
     if (!currentRepo) return;
@@ -90,6 +95,7 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
     try {
       await apiService.triggerIndexing(currentRepo.id);
       await fetchStatus();
+      if (onRefreshRepo) onRefreshRepo();
     } catch (err) {
       console.error(err);
     } finally {
@@ -120,6 +126,7 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
     try {
       await apiService.resetRepositoryStatus(currentRepo.id);
       await fetchStatus();
+      if (onRefreshRepo) onRefreshRepo();
     } catch (err) {
       console.error('Error resetting status:', err);
     }
@@ -164,7 +171,10 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
     );
   }
 
-  const isIndexing = statusData?.indexing_status === 'indexing';
+  // Use statusData if loaded, else fallback to currentRepo
+  const currentStatus = statusData ? statusData.indexing_status : (currentRepo.indexing_status || 'completed');
+  const isIndexing = currentStatus === 'indexing';
+  const currentProgress = statusData ? statusData.indexing_progress : (currentRepo.indexing_progress || 'Project memory active and synchronized.');
 
   // Distribution calculation
   const acceptedCount = statusData?.status_breakdown?.accepted ?? 0;
@@ -175,6 +185,7 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
   const pctAccepted = Math.round((acceptedCount / totalCategorized) * 100);
   const pctRejected = Math.round((rejectedCount / totalCategorized) * 100);
   const pctProposed = Math.max(0, 100 - pctAccepted - pctRejected);
+
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -282,7 +293,7 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
       <div className={`p-4 rounded-xl border transition-all ${
         isIndexing 
           ? 'bg-indigo-950/40 border-indigo-500/40 text-indigo-200' 
-          : statusData?.indexing_status === 'failed'
+          : currentStatus === 'failed'
           ? 'bg-red-950/30 border-red-500/30 text-red-200'
           : 'bg-emerald-950/20 border-emerald-500/30 text-emerald-200'
       }`}>
@@ -290,17 +301,17 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
           <div className="flex items-center space-x-3">
             {isIndexing ? (
               <RefreshCw className="h-5 w-5 text-indigo-400 animate-spin flex-shrink-0" />
-            ) : statusData?.indexing_status === 'failed' ? (
+            ) : currentStatus === 'failed' ? (
               <AlertTriangle className="h-5 w-5 text-red-400 flex-shrink-0" />
             ) : (
               <CheckCircle2 className="h-5 w-5 text-emerald-400 flex-shrink-0" />
             )}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider">
-                Status: {statusData?.indexing_status || currentRepo.indexing_status}
+                Status: {currentStatus === 'completed' ? 'Active / Synchronized' : currentStatus}
               </p>
               <p className="text-xs opacity-90 mt-0.5">
-                {statusData?.indexing_progress || currentRepo.indexing_progress}
+                {currentProgress}
               </p>
             </div>
           </div>
