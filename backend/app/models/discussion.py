@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -22,7 +22,7 @@ class Discussion(Base):
     
     created_at_source = Column(DateTime, nullable=True)
     indexed_for_decisions = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relationships
     repository = relationship("Repository", back_populates="discussions")

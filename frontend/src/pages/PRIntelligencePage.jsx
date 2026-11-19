@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   GitPullRequest, 
   Search, 
@@ -21,17 +21,48 @@ export default function PRIntelligencePage({ currentRepo }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [recentPRs, setRecentPRs] = useState([]);
 
-  const handleAnalyze = async (e) => {
+  // Fetch indexed decisions linked to PRs for 1-click quick selection
+  useEffect(() => {
+    if (!currentRepo) return;
+    apiService.getDecisions(currentRepo.id, { source_type: 'pr' })
+      .then((res) => {
+        if (res.decisions && res.decisions.length > 0) {
+          const prs = [];
+          const seen = new Set();
+          for (const d of res.decisions) {
+            const match = d.source_url?.match(/\/pull\/(\d+)/);
+            if (match) {
+              const num = parseInt(match[1], 10);
+              if (!seen.has(num)) {
+                seen.add(num);
+                prs.push({
+                  number: num,
+                  title: d.decision,
+                });
+              }
+            }
+          }
+          setRecentPRs(prs.slice(0, 6));
+        } else {
+          setRecentPRs([]);
+        }
+      })
+      .catch(() => setRecentPRs([]));
+  }, [currentRepo]);
+
+  const handleAnalyze = async (e, overrideNum = null) => {
     e?.preventDefault();
-    if (!prNumber || !currentRepo) return;
+    const targetNum = overrideNum !== null ? overrideNum : prNumber;
+    if (!targetNum || !currentRepo) return;
 
     setLoading(true);
     setError(null);
     setResult(null);
 
     try {
-      const data = await apiService.analyzePR(currentRepo.id, prNumber);
+      const data = await apiService.analyzePR(currentRepo.id, targetNum);
       setResult(data);
     } catch (err) {
       console.error(err);
@@ -114,7 +145,7 @@ export default function PRIntelligencePage({ currentRepo }) {
                 min="1"
                 value={prNumber}
                 onChange={(e) => setPrNumber(e.target.value)}
-                placeholder="e.g. 1024"
+                placeholder="e.g. 6"
                 className="w-full pl-8 pr-4 py-3 bg-slate-950/80 border border-slate-700 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono"
                 disabled={loading}
               />
@@ -137,6 +168,34 @@ export default function PRIntelligencePage({ currentRepo }) {
               )}
             </button>
           </div>
+
+          {recentPRs.length > 0 && (
+            <div className="pt-2">
+              <span className="text-[11px] text-slate-400 block mb-2 font-medium">
+                1-Click Quick Select from Indexed PRs:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {recentPRs.map((p) => (
+                  <button
+                    key={p.number}
+                    type="button"
+                    onClick={() => {
+                      setPrNumber(p.number.toString());
+                      handleAnalyze(null, p.number);
+                    }}
+                    className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-cyan-950/40 hover:border-cyan-500/50 border border-slate-700/80 text-xs font-mono text-cyan-300 transition-all cursor-pointer group"
+                    title={`Analyze PR #${p.number}: ${p.title}`}
+                  >
+                    <GitPullRequest className="h-3.5 w-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+                    <span className="font-bold">PR #{p.number}</span>
+                    <span className="text-slate-400 truncate max-w-[220px] font-sans text-[11px]">
+                      {p.title}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </form>
 
         {error && (

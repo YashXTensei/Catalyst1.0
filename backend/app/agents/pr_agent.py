@@ -1,5 +1,6 @@
+import time
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from sqlalchemy.orm import Session
 from app.models.repository import Repository
 from app.models.decision import Decision
@@ -10,6 +11,10 @@ from app.services.memory_service import memory_service
 from app.utils.llm import generate_json
 
 logger = logging.getLogger(__name__)
+
+# In-memory cache for PR analysis results (cache_key -> (timestamp, PRAnalyzeResponse))
+_pr_analysis_cache: Dict[str, Tuple[float, PRAnalyzeResponse]] = {}
+CACHE_TTL_SECONDS = 600  # 10 minutes cache
 
 PR_ANALYSIS_SYSTEM_INSTRUCTION = """You are DecisionTrail's PR Intelligence & Architectural Drift Agent.
 Your job is to compare a Pull Request's title, description, and changed files against historical engineering decisions from this repository.
@@ -52,7 +57,16 @@ class PRIntelligenceAgent:
     ) -> PRAnalyzeResponse:
         """
         Analyzes a pull request against historical project decisions.
+        Uses in-memory caching to avoid redundant LLM and GitHub API requests.
         """
+        cache_key = f"{repo.id}:{pr_number}"
+        cached = _pr_analysis_cache.get(cache_key)
+        if cached:
+            cached_time, cached_resp = cached
+            if (time.time() - cached_time) < CACHE_TTL_SECONDS:
+                logger.info(f"Serving PR #{pr_number} analysis from cache for repo {repo.full_name}.")
+                return cached_resp
+
         # Step 1: Fetch PR info & changed files
         pr_info = await github_service.fetch_pr_details_and_files(repo.owner, repo.name, pr_number)
         changed_files = pr_info.get("changed_files", [])
@@ -166,7 +180,7 @@ Analyze and return JSON according to instructions.
                         )
                         overall_risk = "high"
 
-        return PRAnalyzeResponse(
+        response_obj = PRAnalyzeResponse(
             pr_number=pr_number,
             pr_title=pr_title,
             pr_url=pr_info.get("url", ""),
@@ -179,6 +193,8 @@ Analyze and return JSON according to instructions.
             overall_risk=overall_risk,
             recommendations=recommendations or ["Review changes against architecture guidelines."],
         )
+        _pr_analysis_cache[cache_key] = (time.time(), response_obj)
+        return response_obj
 
 
 pr_agent = PRIntelligenceAgent()
