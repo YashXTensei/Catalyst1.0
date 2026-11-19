@@ -80,19 +80,27 @@ class QuestionAnsweringAgent:
         # If no decisions found at all, call Gemini for intelligent architectural perspective
         if not top_decisions:
             logger.info(f"No direct decisions found for '{question}'. Calling Gemini for architectural context.")
-            
-            fallback_prompt = f"""You are DecisionTrail's Senior Technical Architect.
-The user is asking an engineering question in the context of the repository '{repo.full_name}' (Description: {repo.description or 'Open source software'}).
+            total_repo_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
 
-Our repository project memory search found NO specific internal decision or discussion thread matching this question.
+            fallback_prompt = f"""You are DecisionTrail's Senior Technical Architect.
+The user is asking a question in the context of the repository '{repo.full_name}' (Description: {repo.description or 'Open source software'}).
+Total decisions indexed in this repository's vector memory: {total_repo_decisions}.
+
+User question: "{question}"
+
+Our repository project memory search found NO specific internal decision or discussion thread matching this query.
 
 YOUR MISSION:
-1. Clarify honestly upfront:
-   "No specific historical engineering decision was recorded in **{repo.full_name}** regarding '{question}'."
-2. Provide an intelligent, helpful architectural and technical explanation:
-   - Explain why this project might or might not use/discuss this technology based on its domain.
-   - Explain the core technical concepts, trade-offs, or standard industry practices related to the question.
-   - Keep it concise, structured, and developer-friendly.
+1. If the question is a conversational, status, or health-check question (e.g. "working properly?", "is this working?", "hello", "status", "test"):
+   - Confirm clearly that DecisionTrail's memory and retrieval engine is online and fully operational for '{repo.full_name}'.
+   - State that currently {total_repo_decisions} decision(s) are indexed in memory for this repository.
+   - If this repo has only 1 decision (e.g., 'Add python-dotenv dependency'), mention it, and remind the user that they can switch to the 'vlabs-iiit-sonepat' repository in the top navigation dropdown to explore 80+ architectural decisions (like Op-Amp LM741 IC, 3D room scenes, FEE lab circuits).
+2. If the question asks about a specific technology, library, or engineering design:
+   - State clearly: "No specific historical engineering decision was recorded in **{repo.full_name}** regarding '{question}'."
+   - Provide an intelligent, helpful architectural perspective based on modern software engineering practices.
+   - Suggest relevant topics that are actually present in this project's memory.
+
+Keep the response concise, helpful, and developer-friendly.
 """
             llm_fallback_answer = await generate_text(fallback_prompt)
 

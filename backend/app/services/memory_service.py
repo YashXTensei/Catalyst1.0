@@ -131,7 +131,10 @@ class ProjectMemoryService:
 
             # Hybrid blended score
             final_score = (0.55 * sem_score) + (0.45 * kw_score)
-            if final_score >= min_score or kw_matches >= 1:
+
+            # High-signal relevance gate:
+            # Must have at least 1 keyword match, or strong semantic similarity (>= 0.55)
+            if kw_matches >= 1 or sem_score >= 0.55:
                 scored.append((d, final_score))
 
         # Sort descending by score
