@@ -61,6 +61,16 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
     }
   };
 
+  const handleResetStatus = async () => {
+    if (!currentRepo) return;
+    try {
+      await apiService.resetRepositoryStatus(currentRepo.id);
+      await fetchStatus();
+    } catch (err) {
+      console.error('Error resetting status:', err);
+    }
+  };
+
   if (!currentRepo) {
     return (
       <div className="max-w-4xl mx-auto py-16 text-center">
@@ -167,9 +177,18 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
             </div>
           </div>
           {isIndexing && (
-            <span className="text-xs px-2.5 py-1 rounded bg-indigo-500/20 text-indigo-300 font-mono animate-pulse">
-              Live Indexing
-            </span>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs px-2.5 py-1 rounded bg-indigo-500/20 text-indigo-300 font-mono animate-pulse">
+                Live Indexing
+              </span>
+              <button
+                onClick={handleResetStatus}
+                className="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                title="Click if indexing is taking too long or got stuck"
+              >
+                Reset Status
+              </button>
+            </div>
           )}
         </div>
       </div>

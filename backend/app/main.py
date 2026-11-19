@@ -44,6 +44,22 @@ app.include_router(repositories.router)
 def on_startup():
     logger.info("Initializing DecisionTrail database tables...")
     Base.metadata.create_all(bind=engine)
+    
+    # Reset any orphaned indexing status left over from previous process termination
+    try:
+        from app.database import SessionLocal
+        from app.models.repository import Repository
+        db = SessionLocal()
+        stuck_repos = db.query(Repository).filter(Repository.indexing_status == "indexing").all()
+        for r in stuck_repos:
+            r.indexing_status = "completed" if (r.total_decisions or 0) > 0 else "idle"
+            r.indexing_progress = f"Indexing completed ({r.total_decisions or 0} decisions indexed)" if (r.total_decisions or 0) > 0 else "Ready to index"
+        db.commit()
+        db.close()
+        logger.info(f"Cleaned up {len(stuck_repos)} orphaned indexing states.")
+    except Exception as e:
+        logger.warning(f"Error resetting orphaned indexing statuses: {e}")
+
     logger.info("DecisionTrail API initialized successfully.")
 
 

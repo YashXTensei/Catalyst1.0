@@ -8,19 +8,62 @@ import PRIntelligencePage from './pages/PRIntelligencePage';
 import apiService from './services/api';
 import { X, Loader2 } from 'lucide-react';
 
+const VALID_TABS = ['dashboard', 'ask', 'decisions', 'pr'];
+
+function getInitialTab() {
+  const hash = window.location.hash.replace('#', '').trim();
+  if (VALID_TABS.includes(hash)) return hash;
+  const saved = localStorage.getItem('decisiontrail_active_tab');
+  if (VALID_TABS.includes(saved)) return saved;
+  return 'dashboard';
+}
+
+function getInitialRepoId() {
+  const saved = localStorage.getItem('decisiontrail_current_repo_id');
+  return saved ? Number(saved) : null;
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTabState] = useState(getInitialTab);
   const [repositories, setRepositories] = useState([]);
-  const [currentRepo, setCurrentRepo] = useState(null);
+  const [currentRepo, setCurrentRepoState] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
+
+  const setActiveTab = (tab) => {
+    setActiveTabState(tab);
+    localStorage.setItem('decisiontrail_active_tab', tab);
+    window.location.hash = tab;
+  };
+
+  const setCurrentRepo = (repo) => {
+    setCurrentRepoState(repo);
+    if (repo?.id) {
+      localStorage.setItem('decisiontrail_current_repo_id', String(repo.id));
+    }
+  };
+
+  // Keep activeTab in sync with browser forward/back buttons
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '').trim();
+      if (VALID_TABS.includes(hash)) {
+        setActiveTabState(hash);
+        localStorage.setItem('decisiontrail_active_tab', hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const fetchRepositories = async () => {
     try {
       const repos = await apiService.listRepositories();
       setRepositories(repos);
-      if (repos.length > 0 && !currentRepo) {
-        setCurrentRepo(repos[0]);
+      if (repos.length > 0) {
+        const savedRepoId = getInitialRepoId();
+        const matched = savedRepoId ? repos.find((r) => r.id === savedRepoId) : null;
+        setCurrentRepoState(matched || repos[0]);
       }
     } catch (err) {
       console.error('Error fetching repositories:', err);

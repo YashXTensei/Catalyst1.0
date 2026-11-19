@@ -38,6 +38,11 @@ export const apiService = {
     return res.data;
   },
 
+  resetRepositoryStatus: async (repoId) => {
+    const res = await api.post(`/repositories/${repoId}/reset-status`);
+    return res.data;
+  },
+
   getDecisions: async (repoId, params = {}) => {
     const res = await api.get(`/repositories/${repoId}/decisions`, { params });
     return res.data;

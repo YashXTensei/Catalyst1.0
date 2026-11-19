@@ -114,7 +114,7 @@ async def run_background_indexing(repo_id: int, max_pages: int = 2):
         repo.indexing_progress = "Scanning dedicated GitHub issues and discussions..."
         db.commit()
         try:
-            pure_issues = await github_service.fetch_pure_issues(owner=repo.owner, repo=repo.name, limit=25)
+            pure_issues = await github_service.fetch_pure_issues(owner=repo.owner, repo=repo.name, limit=10)
             for disc in pure_issues:
                 source_id = disc.get("source_id")
                 existing_disc = db.query(Discussion).filter(
@@ -182,7 +182,27 @@ async def run_background_indexing(repo_id: int, max_pages: int = 2):
             repo.indexing_progress = f"Indexing encountered an issue: {str(e)[:150]}"
             db.commit()
     finally:
+        try:
+            repo = db.query(Repository).filter(Repository.id == repo_id).first()
+            if repo and repo.indexing_status == "indexing":
+                repo.indexing_status = "completed" if (repo.total_decisions or 0) > 0 else "idle"
+                repo.indexing_progress = f"Indexing completed ({repo.total_decisions or 0} decisions indexed)"
+                db.commit()
+        except Exception:
+            pass
         db.close()
+
+
+@router.post("/{repo_id}/reset-status")
+def reset_repository_status(repo_id: int, db: Session = Depends(get_db)):
+    """Resets repository indexing status if stuck."""
+    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    repo.indexing_status = "completed" if (repo.total_decisions or 0) > 0 else "idle"
+    repo.indexing_progress = f"Status reset. ({repo.total_decisions or 0} decisions indexed)"
+    db.commit()
+    return {"message": "Repository indexing status reset successfully", "repo_id": repo.id}
 
 
 @router.get("", response_model=List[RepositoryResponse])
