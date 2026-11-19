@@ -2,11 +2,17 @@ import os
 import math
 import logging
 import hashlib
-from typing import List
+from typing import List, Optional, Sequence
 import numpy as np
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# `gemini-embedding-001` produces 3072-dimensional vectors unless the caller
+# explicitly requests output dimensionality. DecisionTrail does not request a
+# reduced dimensionality, so this is the only dimension accepted for persisted
+# production embeddings.
+EMBEDDING_DIMENSION = 3072
 
 # Cache client instance
 _gemini_client = None
@@ -25,7 +31,7 @@ def get_gemini_client():
     return _gemini_client
 
 
-def get_fallback_embedding(text: str, dim: int = 768) -> List[float]:
+def get_fallback_embedding(text: str, dim: int = EMBEDDING_DIMENSION) -> List[float]:
     """
     Deterministic pseudo-semantic vector generator for fallback when API keys are absent.
     Uses rolling hash and character n-grams normalized to unit length.
@@ -43,13 +49,30 @@ def get_fallback_embedding(text: str, dim: int = 768) -> List[float]:
     return vec.tolist()
 
 
-async def generate_embedding(text: str) -> List[float]:
+def is_valid_embedding(
+    embedding: Optional[Sequence[float]],
+    expected_dimension: int = EMBEDDING_DIMENSION,
+) -> bool:
+    """Return whether an embedding is safe to persist and search."""
+    if not embedding or len(embedding) != expected_dimension:
+        return False
+
+    try:
+        values = np.asarray(embedding, dtype=np.float32)
+    except (TypeError, ValueError):
+        return False
+
+    return bool(np.isfinite(values).all() and np.linalg.norm(values) > 0)
+
+
+async def generate_embedding(text: str) -> Optional[List[float]]:
     """
     Generates embedding for text using EMBEDDING_MODEL from .env.
-    Falls back gracefully to deterministic vectorizer if not configured.
+    Returns ``None`` when Gemini cannot produce a valid embedding. This avoids
+    silently mixing fallback vectors with vectors from the configured model.
     """
     if not text or not text.strip():
-        return [0.0] * 768
+        return None
 
     client = get_gemini_client()
     if client and settings.embedding_model:
@@ -59,14 +82,30 @@ async def generate_embedding(text: str) -> List[float]:
                 model=settings.embedding_model,
                 contents=text[:8000]
             )
+            embedding = None
             if hasattr(response, "embedding") and response.embedding:
-                return response.embedding.values
+                embedding = response.embedding.values
             elif hasattr(response, "embeddings") and response.embeddings:
-                return response.embeddings[0].values
-        except Exception as e:
-            logger.warning(f"Gemini embedding API call failed ({settings.embedding_model}): {e}. Using deterministic vectorizer.")
+                embedding = response.embeddings[0].values
 
-    return get_fallback_embedding(text)
+            if is_valid_embedding(embedding):
+                return list(embedding)
+
+            actual_dimension = len(embedding) if embedding else 0
+            logger.error(
+                "Discarding invalid Gemini embedding from %s: expected %s dimensions, got %s.",
+                settings.embedding_model,
+                EMBEDDING_DIMENSION,
+                actual_dimension,
+            )
+        except Exception as e:
+            logger.warning(
+                "Gemini embedding API call failed (%s): %s. No embedding will be stored.",
+                settings.embedding_model,
+                e,
+            )
+
+    return None
 
 
 def cosine_similarity(v1: List[float], v2: List[float]) -> float:

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from app.models.decision import Decision
 from app.models.repository import Repository
-from app.utils.embeddings import generate_embedding, cosine_similarity
+from app.utils.embeddings import generate_embedding, cosine_similarity, is_valid_embedding
 from app.services.code_mapping import code_mapping_service
 
 logger = logging.getLogger(__name__)
@@ -52,6 +52,11 @@ class ProjectMemoryService:
             f"Components: {' '.join(decision_data.get('affected_components', []))}."
         )
         embedding_vec = await generate_embedding(text_to_embed)
+        # A failed or invalid provider response must never introduce a vector
+        # that is incompatible with the configured embedding model.
+        if embedding_vec is not None and not is_valid_embedding(embedding_vec):
+            logger.error("Refusing to save an invalid embedding for decision '%s'.", decision_title)
+            embedding_vec = None
 
         new_decision = Decision(
             repo_id=repo_id,
@@ -109,7 +114,7 @@ class ProjectMemoryService:
         for d in decisions:
             # 1. Semantic score
             sem_score = 0.0
-            if d.embedding and query_vec:
+            if is_valid_embedding(d.embedding) and is_valid_embedding(query_vec):
                 sem_score = max(0.0, cosine_similarity(query_vec, d.embedding))
 
             # 2. Keyword score

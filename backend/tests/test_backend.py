@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.github_service import GitHubService
 from app.services.code_mapping import CodeMappingService
-from app.utils.embeddings import get_fallback_embedding, cosine_similarity
+from app.utils.embeddings import EMBEDDING_DIMENSION, get_fallback_embedding, cosine_similarity
 from app.database import Base, engine, SessionLocal
 from app.models.repository import Repository
 from app.models.decision import Decision
@@ -69,7 +69,7 @@ class DecisionTrailBackendTests(unittest.TestCase):
         sim_1_3 = cosine_similarity(vec1, vec3)
 
         self.assertGreater(sim_1_2, sim_1_3)
-        self.assertEqual(len(vec1), 768)
+        self.assertEqual(len(vec1), EMBEDDING_DIMENSION)
 
     def test_06_store_and_search_decision(self):
         import asyncio
