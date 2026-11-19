@@ -79,7 +79,12 @@ export default function PRIntelligencePage({ currentRepo }) {
   };
 
   const handleLoadPreset = (presetType) => {
-    if (presetType === 'redis') {
+    if (presetType === 'lunaria') {
+      setSimTitle('Revert Tailwind CSS back to Lunaria styling framework');
+      setSimFiles('tailwind.config.js, styles/theme.css');
+      setSimDescription('Proposal to shift codebase styling back to Lunaria components.');
+      setSimDiff('- @tailwind base;\n+ import lunaria from "lunaria"');
+    } else if (presetType === 'redis') {
       setSimTitle('Introduce Redis for session management and distributed cache');
       setSimFiles('backend/database.py, app/services/session_store.py');
       setSimDescription('Adding Redis client for session storage to scale beyond local database.');
@@ -191,10 +196,18 @@ export default function PRIntelligencePage({ currentRepo }) {
                 <span className="text-slate-400">Quick presets:</span>
                 <button
                   type="button"
+                  onClick={() => handleLoadPreset('lunaria')}
+                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-rose-300 border border-slate-700 font-mono text-[11px]"
+                  title="Detect real conflict with Issue #11"
+                >
+                  Revert to Lunaria (Real Conflict)
+                </button>
+                <button
+                  type="button"
                   onClick={() => handleLoadPreset('redis')}
                   className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-slate-700 font-mono text-[11px]"
                 >
-                  Redis Session Storage
+                  Redis Sessions
                 </button>
                 <button
                   type="button"
