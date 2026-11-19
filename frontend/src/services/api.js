@@ -52,6 +52,27 @@ export const apiService = {
     const res = await api.post(`/repositories/${repoId}/pull-requests/analyze`, { pr_number: parseInt(prNumber, 10) });
     return res.data;
   },
+
+  // PEP Benchmark
+  getBenchmarkSummary: async () => {
+    const res = await api.get('/benchmark');
+    return res.data;
+  },
+
+  getBenchmarkCandidates: async () => {
+    const res = await api.get('/benchmark/candidates');
+    return res.data;
+  },
+
+  runBenchmark: async (payload = {}) => {
+    const res = await api.post('/benchmark/run', payload);
+    return res.data;
+  },
+
+  runSinglePEPBenchmark: async (pepNumber, forceRefresh = false) => {
+    const res = await api.post(`/benchmark/run/${pepNumber}`, null, { params: { force_refresh: forceRefresh } });
+    return res.data;
+  },
 };
 
 export default apiService;

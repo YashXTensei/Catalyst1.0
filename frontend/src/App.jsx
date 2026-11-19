@@ -5,10 +5,11 @@ import DashboardPage from './pages/DashboardPage';
 import AskMemoryPage from './pages/AskMemoryPage';
 import DecisionExplorerPage from './pages/DecisionExplorerPage';
 import PRIntelligencePage from './pages/PRIntelligencePage';
+import PEPBenchmarkPage from './pages/PEPBenchmarkPage';
 import apiService from './services/api';
 import { X, Loader2 } from 'lucide-react';
 
-const VALID_TABS = ['dashboard', 'ask', 'decisions', 'pr'];
+const VALID_TABS = ['dashboard', 'ask', 'decisions', 'pr', 'benchmark'];
 
 function getInitialTab() {
   const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
@@ -140,6 +141,7 @@ export default function App() {
         {activeTab === 'ask' && <AskMemoryPage currentRepo={currentRepo} />}
         {activeTab === 'decisions' && <DecisionExplorerPage currentRepo={currentRepo} />}
         {activeTab === 'pr' && <PRIntelligencePage currentRepo={currentRepo} />}
+        {activeTab === 'benchmark' && <PEPBenchmarkPage />}
       </main>
 
       {/* Connect Repo Modal */}
