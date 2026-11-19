@@ -28,38 +28,6 @@ STRICT RULES:
 
 class QuestionAnsweringAgent:
     @staticmethod
-    def _is_conversational_or_greeting(query: str) -> bool:
-        """Detects if query is a greeting, status check, or casual conversation rather than an engineering question."""
-        q = query.strip().lower()
-        words = re.findall(r"\w+", q)
-        if not words:
-            return True
-
-        greetings = {"hello", "hi", "hey", "hola", "namaste", "good morning", "good afternoon", "good evening", "howdy", "sup", "yo"}
-        if len(words) <= 3 and any(w in greetings for w in words):
-            return True
-
-        status_phrases = [
-            "working properly", "is it working", "is this working", "are you working", 
-            "working fine", "all good", "status", "health check", "ping", "test",
-            "kaise ho", "kya chal raha", "works properly"
-        ]
-        if any(sp in q for sp in status_phrases):
-            # Only treat as status check if no specific technical entity is named
-            technical_nouns = ["pr", "issue", "database", "api", "model", "scene", "docker", "redux", "circuit", "breadboard"]
-            if not any(tn in q for tn in technical_nouns):
-                return True
-
-        meta_phrases = [
-            "who are you", "what can you do", "what do you do", "how do you work", 
-            "help me", "help", "thank you", "thanks", "dhanyawad", "bye", "goodbye"
-        ]
-        if any(mp in q for mp in meta_phrases):
-            return True
-
-        return False
-
-    @staticmethod
     def _has_technical_keywords(query: str) -> bool:
         """Determines if query contains technical terminology suitable for GitHub on-demand search."""
         q = query.lower()
@@ -81,38 +49,12 @@ class QuestionAnsweringAgent:
     ) -> QuestionResponse:
         """
         Executes Question-First retrieval & answering pipeline:
-        1. Checks for conversational / greeting intent.
-        2. Hybrid search on stored repository memory.
-        3. If memory is sparse or lacking high-confidence matches, performs targeted GitHub search on-demand.
-        4. Synthesizes a factual, citation-backed response.
+        1. Hybrid search on stored repository memory.
+        2. If memory is sparse and query has technical keywords, performs targeted GitHub search on-demand.
+        3. Synthesizes a factual, citation-backed response if evidence exists.
+        4. If no specific repo decisions exist, naturally and intelligently converses with the user.
         """
         total_repo_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
-
-        # Step 0: Handle conversational greetings and health-check queries directly
-        if QuestionAnsweringAgent._is_conversational_or_greeting(question):
-            sample_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).order_by(Decision.created_at.desc()).limit(3).all()
-            sample_queries = []
-            for d in sample_decisions:
-                sample_queries.append(f"• *\"What was decided regarding: {d.decision}?\"*")
-            sample_text = "\n".join(sample_queries) if sample_queries else "• *\"What were the key architectural decisions made?\"*"
-
-            answer = (
-                f"👋 **Hello! DecisionTrail Intelligence is active and working properly for `{repo.full_name}`.**\n\n"
-                f"Currently, **{total_repo_decisions} architectural decision(s)** are indexed in this repository's vector memory.\n\n"
-                f"You can ask me technical questions about why specific libraries were chosen, what alternatives were rejected, or how components were designed.\n\n"
-                f"💡 **Example questions you can ask right now:**\n{sample_text}"
-            )
-
-            return QuestionResponse(
-                question=question,
-                answer=answer,
-                confidence="high",
-                evidence_found=True,
-                decisions_used=[],
-                citations=[],
-                search_strategy="conversational_greeting",
-            )
-
         search_strategy = "cached_memory"
         top_decisions: List[Decision] = []
 
@@ -149,22 +91,27 @@ class QuestionAnsweringAgent:
             except Exception as e:
                 logger.warning(f"On-demand targeted search error: {e}")
 
-        # Step 3: If no relevant decisions found at all, call Gemini for honest, helpful architectural context
+        # Step 3: If no relevant repository decisions matched, use Gemini for natural, intelligent response
         if not top_decisions:
-            logger.info(f"No direct decisions found for '{question}'. Calling Gemini for architectural context.")
+            logger.info(f"No direct decisions found for '{question}'. Calling Gemini with generic conversational prompt.")
 
-            fallback_prompt = f"""You are DecisionTrail's Senior Technical Architect for '{repo.full_name}'.
-The user asked: "{question}"
+            fallback_prompt = f"""You are DecisionTrail Intelligence, an AI assistant integrated with the repository '{repo.full_name}'.
+Repository description: {repo.description or 'Open source project'}.
+Total decisions currently recorded in memory for this repo: {total_repo_decisions}.
 
-No historical engineering decision, issue discussion, or pull request in this repository matches this question.
+User input: "{question}"
 
-YOUR MISSION:
-1. Clearly state upfront:
-   "Mujhe **{repo.full_name}** me is topic ('{question}') se related koi historical engineering decision ya discussion nahi mili."
-2. Provide a helpful, concise standard engineering perspective or explanation based on general software architecture.
-3. If this repository focuses on specific topics, mention what developers can ask about instead.
+Repository search result: No specific historical engineering decisions or ADRs in this repo matched this query.
 
-Keep it direct, professional, and friendly. Do NOT invent fake decisions.
+INSTRUCTIONS:
+1. Casual chat, greetings, jokes, or everyday conversation (e.g. "Whats your name?", "Jus chill have a break bro", "How are you?", "Tell me a joke", "Hello", "Working properly?"):
+   - Reply naturally, warmly, and conversationally in the same language and friendly vibe as the user.
+   - Feel free to be playful, supportive, and human.
+   - NEVER use robotic boilerplate like "No historical ADR was found" or "Mujhe is topic se related koi decision nahi mila" for casual chat!
+2. Questions specifically about this project or software engineering (e.g. "What database does this use?", "Why React?", "How do I deploy?"):
+   - If it's about a specific decision not recorded here, simply say naturally that there's no recorded decision about this in the repo's history yet.
+   - Provide an intelligent, helpful architectural perspective based on modern software engineering practices.
+   - If relevant, mention what topics developers can ask about in this repository.
 """
             llm_fallback_answer = await generate_text(fallback_prompt)
 
@@ -179,27 +126,15 @@ Keep it direct, professional, and friendly. Do NOT invent fake decisions.
                     search_strategy="ai_general_knowledge",
                 )
 
-            # Rule-based fallback if LLM is unavailable
-            existing_sample = db.query(Decision).filter(Decision.repo_id == repo.id).limit(4).all()
-            if existing_sample:
-                sample_list = "\n".join([f"• \"{ed.decision}\"" for ed in existing_sample])
-                answer_text = (
-                    f"Mujhe **{repo.full_name}** repository me '{question}' se related koi historical engineering decision nahi mili.\n\n"
-                    f"**Is repository me aap in decisions ke baare me pooch sakte hain:**\n{sample_list}"
-                )
-            else:
-                answer_text = (
-                    f"Mujhe **{repo.full_name}** repository me '{question}' se related koi historical engineering decision nahi mili."
-                )
-
+            # Simple fallback if LLM is offline
             return QuestionResponse(
                 question=question,
-                answer=answer_text,
-                confidence="insufficient_evidence",
+                answer="I'm online and ready to assist you! Feel free to ask about this project's architecture, past decisions, or any engineering questions.",
+                confidence="general_knowledge",
                 evidence_found=False,
                 decisions_used=[],
                 citations=[],
-                search_strategy=search_strategy,
+                search_strategy="cached_memory",
             )
 
         # Step 4: Construct context for LLM synthesis from genuine matching decisions
@@ -241,9 +176,25 @@ Historical Engineering Context from {repo.full_name}:
 {"".join(context_blocks)}
 
 Synthesize a direct, clear, and well-structured answer explaining the decision, rationale, rejected alternatives, and trade-offs. Cite the evidence directly.
-CRITICAL: If the provided decisions do not actually address the user's question, clearly state:
-"Mujhe is repository me is topic se related koi specific engineering decision nahi mili."
+CRITICAL: If the retrieved context does not actually answer what the user asked, answer naturally and clarify that no specific decision was found for that topic.
 """
+        raw_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT)
+        answer = raw_answer.strip() if raw_answer else "Unable to synthesize answer from retrieved context."
+
+        # If answer states nothing was found, suppress citations
+        if "No relevant historical engineering decision" in answer or "koi specific engineering decision nahi mili" in answer:
+            citations = []
+            decisions_used_schemas = []
+
+        return QuestionResponse(
+            question=question,
+            answer=answer,
+            confidence="high" if len(top_decisions) >= 2 else "medium",
+            evidence_found=True if citations else False,
+            decisions_used=decisions_used_schemas,
+            citations=citations,
+            search_strategy=search_strategy,
+        )
         raw_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT)
         answer = raw_answer.strip() if raw_answer else "Unable to synthesize answer from retrieved context."
 
