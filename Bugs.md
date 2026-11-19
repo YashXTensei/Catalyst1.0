@@ -16,3 +16,5 @@
   1. Installed missing packages (`pydantic-settings`, `google-genai`).
   2. Created `.env` from `.env.example`.
   3. Verified backend loads and connects to database and Gemini/GitHub APIs successfully.
+
+  ## 4 : Improve Semantic Search 3072 dimensions ko 768 me karna ha 
