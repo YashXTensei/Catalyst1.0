@@ -43,6 +43,16 @@ export const apiService = {
     return res.data;
   },
 
+  syncGithubRepo: async (repoId) => {
+    const res = await api.post(`/repositories/${repoId}/sync-github`);
+    return res.data;
+  },
+
+  quickExtractDecision: async (repoId, payload) => {
+    const res = await api.post(`/repositories/${repoId}/extract-quick`, payload);
+    return res.data;
+  },
+
   getDecisions: async (repoId, params = {}) => {
     const res = await api.get(`/repositories/${repoId}/decisions`, { params });
     return res.data;

@@ -42,4 +42,14 @@ class RepositoryStatusResponse(BaseModel):
     total_prs: int = 0
     total_issues: int = 0
     total_decisions: int
+    status_breakdown: Optional[dict] = None
+    source_breakdown: Optional[dict] = None
     recent_decisions: List[dict] = []
+
+
+class QuickExtractRequest(BaseModel):
+    text: str = Field(..., description="Discussion, issue, or PR comment text to extract decisions from")
+    title: Optional[str] = Field("Manual Live Ingestion", description="Optional title or context")
+    source_url: Optional[str] = Field(None, description="Optional source link")
+    author: Optional[str] = Field("collaborator", description="Author handle")
+

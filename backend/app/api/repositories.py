@@ -3,11 +3,18 @@ import asyncio
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
 from app.database import get_db, SessionLocal
 from app.models.repository import Repository
 from app.models.discussion import Discussion
 from app.models.decision import Decision
-from app.schemas.repository import RepositoryConnectRequest, RepositoryResponse, RepositoryStatusResponse, DiscourseIngestRequest
+from app.schemas.repository import (
+    RepositoryConnectRequest,
+    RepositoryResponse,
+    RepositoryStatusResponse,
+    DiscourseIngestRequest,
+    QuickExtractRequest,
+)
 from app.schemas.decision import DecisionResponse, DecisionListResponse
 from app.schemas.qa import QuestionRequest, QuestionResponse
 from app.schemas.pr import PRAnalyzeRequest, PRAnalyzeResponse, PRSimulateRequest
@@ -272,14 +279,14 @@ async def connect_repository(
 
 @router.get("/{repo_id}/status", response_model=RepositoryStatusResponse)
 def get_repository_status(repo_id: int, db: Session = Depends(get_db)):
-    """Gets real-time indexing status and discussion/decision counters."""
+    """Gets real-time indexing status, discussion/decision counters, and breakdown metrics."""
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
 
     recent_decisions = db.query(Decision).filter(
         Decision.repo_id == repo_id
-    ).order_by(Decision.created_at.desc()).limit(5).all()
+    ).order_by(Decision.created_at.desc()).limit(8).all()
 
     total_prs = db.query(Discussion).filter(
         Discussion.repo_id == repo_id,
@@ -291,6 +298,24 @@ def get_repository_status(repo_id: int, db: Session = Depends(get_db)):
         Discussion.discussion_type == "issue"
     ).count()
 
+    # Dynamic status breakdown
+    accepted_count = db.query(Decision).filter(Decision.repo_id == repo_id, Decision.status == "accepted").count()
+    rejected_count = db.query(Decision).filter(Decision.repo_id == repo_id, Decision.status == "rejected").count()
+    proposed_count = db.query(Decision).filter(Decision.repo_id == repo_id, Decision.status == "proposed").count()
+    deprecated_count = db.query(Decision).filter(Decision.repo_id == repo_id, Decision.status == "deprecated").count()
+
+    # Multi-source breakdown
+    discourse_count = db.query(Decision).filter(
+        Decision.repo_id == repo_id,
+        (Decision.source_type == "discourse") | (Decision.source_url.ilike("%discuss.%")) | (Decision.source_url.ilike("%forum.%"))
+    ).count()
+
+    unique_contributors = db.query(func.count(func.distinct(Discussion.author))).filter(
+        Discussion.repo_id == repo_id,
+        Discussion.author != None,
+        Discussion.author != ""
+    ).scalar() or 0
+
     return {
         "repo_id": repo.id,
         "full_name": repo.full_name,
@@ -300,18 +325,137 @@ def get_repository_status(repo_id: int, db: Session = Depends(get_db)):
         "total_prs": total_prs,
         "total_issues": total_issues,
         "total_decisions": repo.total_decisions,
+        "status_breakdown": {
+            "accepted": accepted_count,
+            "rejected": rejected_count,
+            "proposed": proposed_count,
+            "deprecated": deprecated_count,
+        },
+        "source_breakdown": {
+            "github_prs": total_prs,
+            "github_issues": total_issues,
+            "discourse_topics": discourse_count,
+            "unique_contributors": unique_contributors,
+        },
         "recent_decisions": [
             {
                 "id": d.id,
                 "decision": d.decision,
                 "status": d.status,
                 "context": d.context,
+                "rejected_alternatives": d.rejected_alternatives or [],
+                "reasoning": d.reasoning or [],
                 "source_url": d.source_url,
                 "created_at": d.created_at.isoformat() if d.created_at else None,
             }
             for d in recent_decisions
         ]
     }
+
+
+@router.post("/{repo_id}/sync-github")
+async def sync_github_repository(repo_id: int, db: Session = Depends(get_db)):
+    """Fetches live metadata from GitHub (stars, branch, description) and syncs database."""
+    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    try:
+        repo_info = await github_service.get_repository_info(repo.owner, repo.name)
+        repo.stars = repo_info.get("stars", repo.stars)
+        repo.description = repo_info.get("description", repo.description)
+        repo.default_branch = repo_info.get("default_branch", repo.default_branch)
+        db.commit()
+        db.refresh(repo)
+        return {
+            "message": "Repository metadata synced live with GitHub",
+            "stars": repo.stars,
+            "description": repo.description,
+            "default_branch": repo.default_branch,
+        }
+    except Exception as e:
+        logger.warning("Could not sync with GitHub live: %s", str(e))
+        return {
+            "message": f"GitHub sync notice: {str(e)}",
+            "stars": repo.stars,
+            "description": repo.description,
+            "default_branch": repo.default_branch,
+        }
+
+
+@router.post("/{repo_id}/extract-quick")
+async def extract_quick_decision(
+    repo_id: int,
+    payload: QuickExtractRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Live interactive decision extraction: Takes arbitrary discussion/comment text,
+    runs Gemini Decision Extractor, indexes into vector memory, and returns structured decision.
+    """
+    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    text_input = payload.text.strip()
+    if len(text_input) < 10:
+        raise HTTPException(status_code=400, detail="Text must be at least 10 characters long.")
+
+    source_url = payload.source_url or f"https://github.com/{repo.full_name}/discussions/live"
+
+    # 1. Run live LLM decision extraction
+    extracted = await decision_extractor.extract_from_discussion(
+        title=payload.title or "Interactive Extraction",
+        body=text_input,
+        source_url=source_url,
+        comments=None,
+        source_type="interactive"
+    )
+
+    if not extracted:
+        return {
+            "success": False,
+            "message": "No architectural or engineering decision could be confidently extracted from this text.",
+            "extracted_decisions": [],
+            "new_total_decisions": repo.total_decisions
+        }
+
+    stored_decisions = []
+    for idx, dec_data in enumerate(extracted):
+        unique_src_id = f"live_{repo.id}_{repo.total_decisions or 0}_{idx + 1}"
+        saved = await memory_service.store_decision(
+            db=db,
+            repo_id=repo.id,
+            decision_data=dec_data,
+            source_id=unique_src_id
+        )
+        if saved:
+            stored_decisions.append({
+                "id": saved.id,
+                "decision": saved.decision,
+                "status": saved.status,
+                "context": saved.context,
+                "reasoning": saved.reasoning or [],
+                "rejected_alternatives": saved.rejected_alternatives or [],
+                "code_references": saved.code_references or [],
+                "affected_components": saved.affected_components or [],
+                "evidence": saved.evidence or [],
+                "confidence": saved.confidence or 0.95,
+                "source_url": saved.source_url,
+                "created_at": saved.created_at.isoformat() if saved.created_at else None,
+            })
+
+    # Update repo counters
+    repo.total_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
+    db.commit()
+
+    return {
+        "success": True,
+        "message": f"Successfully extracted and indexed {len(stored_decisions)} decision(s) into project memory!",
+        "extracted_decisions": stored_decisions,
+        "new_total_decisions": repo.total_decisions
+    }
+
 
 
 @router.post("/{repo_id}/index")
