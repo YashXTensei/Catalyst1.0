@@ -7,6 +7,13 @@ class PRAnalyzeRequest(BaseModel):
     pr_number: int = Field(..., ge=1, description="Pull Request number to analyze")
 
 
+class PRSimulateRequest(BaseModel):
+    title: str = Field(..., min_length=3, description="PR Title or proposed change")
+    description: Optional[str] = Field("", description="PR description or rationale")
+    changed_files: List[str] = Field(default_factory=list, description="List of modified files")
+    diff: Optional[str] = Field("", description="Optional code diff snippet")
+
+
 class PotentialConflict(BaseModel):
     decision_id: int
     decision_title: str

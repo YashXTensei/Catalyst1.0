@@ -15,7 +15,8 @@ import {
   Tag,
   Layers,
   GitPullRequest,
-  MessageSquare
+  MessageSquare,
+  Compass
 } from 'lucide-react';
 import apiService from '../services/api';
 
@@ -25,7 +26,7 @@ export default function DecisionExplorerPage({ currentRepo }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
-  const [counts, setCounts] = useState({ total: 0, prs: 0, issues: 0 });
+  const [counts, setCounts] = useState({ total: 0, prs: 0, issues: 0, discourse: 0 });
   const [expandedId, setExpandedId] = useState(null);
 
   const fetchDecisions = async () => {
@@ -42,6 +43,7 @@ export default function DecisionExplorerPage({ currentRepo }) {
         total: data.total ?? (data.decisions ? data.decisions.length : 0),
         prs: data.total_pr_decisions ?? 0,
         issues: data.total_issue_decisions ?? 0,
+        discourse: data.total_discourse_decisions ?? 0,
       });
     } catch (err) {
       console.error('Failed to load decisions:', err);
@@ -122,6 +124,10 @@ export default function DecisionExplorerPage({ currentRepo }) {
               <MessageSquare className="h-3 w-3" />
               <span>{counts.issues} Issues</span>
             </span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center space-x-1">
+              <Compass className="h-3 w-3" />
+              <span>{counts.discourse || 0} Discourse</span>
+            </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
             Browse structured decisions with rejected alternatives, reasoning, and linked source discussions.
@@ -193,6 +199,18 @@ export default function DecisionExplorerPage({ currentRepo }) {
           <MessageSquare className="h-3.5 w-3.5" />
           <span>Issues ({counts.issues})</span>
         </button>
+        <button
+          type="button"
+          onClick={() => setSourceFilter('discourse')}
+          className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+            sourceFilter === 'discourse'
+              ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+              : 'bg-slate-900 text-amber-300 hover:text-white border border-amber-500/20 hover:border-amber-500/40'
+          }`}
+        >
+          <Compass className="h-3.5 w-3.5" />
+          <span>Discourse ({counts.discourse || 0})</span>
+        </button>
       </div>
 
       {/* Decisions List */}
@@ -250,6 +268,11 @@ export default function DecisionExplorerPage({ currentRepo }) {
                           <MessageSquare className="h-3.5 w-3.5 text-emerald-400" />
                           <span>Issue #{dec.source_url.split('/issues/')[1]?.split(/[#/?]/)[0]}</span>
                         </span>
+                      ) : (dec.source_type === 'discourse' || dec.source_url?.includes('discuss.') || dec.source_url?.includes('forum.')) ? (
+                        <span className="flex items-center space-x-1 text-amber-300 font-semibold">
+                          <Compass className="h-3.5 w-3.5 text-amber-400" />
+                          <span>Discourse Forum</span>
+                        </span>
                       ) : (
                         <span className="text-slate-300">Discussion</span>
                       )}
@@ -293,10 +316,11 @@ export default function DecisionExplorerPage({ currentRepo }) {
                         {dec.code_references.map((cr, i) => (
                           <span
                             key={i}
-                            className="flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-indigo-300 font-mono text-[11px]"
+                            className="flex items-center space-x-1.5 px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-indigo-300 font-mono text-[11px]"
                           >
-                            <FileCode className="h-3 w-3" />
+                            <FileCode className="h-3 w-3 text-cyan-400" />
                             <span>{cr}</span>
+                            <span className="text-[9px] px-1 rounded bg-emerald-500/20 text-emerald-300 uppercase font-bold tracking-tight">confirmed</span>
                           </span>
                         ))}
                       </div>

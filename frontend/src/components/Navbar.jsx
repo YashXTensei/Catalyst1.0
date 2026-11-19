@@ -7,7 +7,8 @@ import {
   GitPullRequest, 
   Database,
   RefreshCw,
-  FolderGit2
+  FolderGit2,
+  Award
 } from 'lucide-react';
 
 export default function Navbar({ 
@@ -88,6 +89,18 @@ export default function Navbar({
             >
               <GitPullRequest className="h-4 w-4" />
               <span>PR Intelligence</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('benchmark')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'benchmark'
+                  ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 font-semibold'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Award className="h-4 w-4 text-emerald-400" />
+              <span>PEP Benchmark</span>
             </button>
           </nav>
 

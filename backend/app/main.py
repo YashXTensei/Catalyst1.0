@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
-from app.api import health, repositories
+from app.api import health, repositories, benchmark
 import app.models  # ensure models are loaded for Base.metadata.create_all
 
 logging.basicConfig(
@@ -38,6 +38,7 @@ app.add_middleware(
 # Include core routers
 app.include_router(health.router)
 app.include_router(repositories.router)
+app.include_router(benchmark.router)
 
 
 @app.on_event("startup")

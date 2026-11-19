@@ -51,4 +51,5 @@ class DecisionListResponse(BaseModel):
     total: int
     total_pr_decisions: int = 0
     total_issue_decisions: int = 0
+    total_discourse_decisions: int = 0
     decisions: List[DecisionResponse]

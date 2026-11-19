@@ -5,6 +5,12 @@ from pydantic import BaseModel, Field
 
 class RepositoryConnectRequest(BaseModel):
     url: str = Field(..., description="GitHub repository URL (e.g., https://github.com/fastapi/fastapi or owner/repo)")
+    discourse_url: Optional[str] = Field(None, description="Optional Discourse forum or topic URL (e.g. https://discuss.python.org/t/topic/123)")
+
+
+class DiscourseIngestRequest(BaseModel):
+    forum_url: str = Field(..., description="Discourse forum base URL or specific topic URL (e.g. https://discuss.python.org/t/pep-572/1234)")
+    limit: int = Field(default=5, ge=1, le=30, description="Max topics to ingest")
 
 
 class RepositoryResponse(BaseModel):

@@ -57,6 +57,21 @@ export const apiService = {
     const res = await api.post(`/repositories/${repoId}/pull-requests/analyze`, { pr_number: parseInt(prNumber, 10) });
     return res.data;
   },
+
+  simulatePR: async (repoId, payload) => {
+    const res = await api.post(`/repositories/${repoId}/pull-requests/simulate`, payload);
+    return res.data;
+  },
+
+  ingestDiscourse: async (repoId, payload) => {
+    const res = await api.post(`/repositories/${repoId}/ingest-discourse`, payload);
+    return res.data;
+  },
+
+  getBenchmarkResults: async () => {
+    const res = await api.get('/benchmark');
+    return res.data;
+  },
 };
 
 export default apiService;

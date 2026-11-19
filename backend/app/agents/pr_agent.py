@@ -176,5 +176,130 @@ Analyze and return JSON according to instructions.
             recommendations=recommendations or ["Review changes against architecture guidelines."],
         )
 
+    @staticmethod
+    async def analyze_simulated_pr(
+        db: Session,
+        repo: Repository,
+        title: str,
+        description: str = "",
+        changed_files: List[str] = None,
+        diff: str = ""
+    ) -> PRAnalyzeResponse:
+        """
+        Analyzes a simulated Pull Request or user-pasted diff against historical decisions.
+        Enables instant interactive demonstration without requiring a live GitHub PR.
+        """
+        changed_files = changed_files or []
+        combined_text = f"{title}\n{description}\n{diff}"
+
+        # If changed_files not provided, extract file paths from diff/text
+        if not changed_files:
+            from app.services.code_mapping import code_mapping_service
+            changed_files = code_mapping_service.extract_file_references(combined_text)
+
+        # Retrieve related historical decisions
+        related_decisions_map: Dict[int, Decision] = {}
+
+        if changed_files:
+            file_matched = memory_service.get_decisions_by_code_references(db, repo.id, changed_files)
+            for d in file_matched:
+                related_decisions_map[d.id] = d
+
+        query_text = f"{title} {description}"
+        scored_decisions = await memory_service.search_decisions(db, repo.id, query_text, top_k=4)
+        for d, score in scored_decisions:
+            related_decisions_map[d.id] = d
+
+        related_decisions = list(related_decisions_map.values())
+        conflicts: List[PotentialConflict] = []
+        overall_risk = "none"
+        recommendations: List[str] = []
+        summary = f"Simulated PR '{title}' touches {len(changed_files)} component(s)."
+
+        # Conflict detection via LLM and heuristics
+        if related_decisions:
+            decisions_context = []
+            for d in related_decisions:
+                decisions_context.append({
+                    "id": d.id,
+                    "decision": d.decision,
+                    "status": d.status,
+                    "rejected_alternatives": d.rejected_alternatives,
+                    "reasoning": d.reasoning,
+                    "code_references": d.code_references,
+                    "evidence": d.evidence,
+                    "source_url": d.source_url,
+                })
+
+            prompt = f"""Simulated Pull Request:
+Title: {title}
+Description: {description}
+Changed Files: {', '.join(changed_files)}
+Diff snippet: {diff[:1500]}
+
+Historical Decisions:
+{decisions_context}
+
+Analyze if this proposed change reintroduces a rejected approach or violates an agreed architectural pattern.
+"""
+            llm_result = await generate_json(prompt, system_instruction=PR_ANALYSIS_SYSTEM_INSTRUCTION)
+            if isinstance(llm_result, dict):
+                summary = llm_result.get("summary", summary)
+                overall_risk = llm_result.get("overall_risk", "none").lower()
+                recommendations = llm_result.get("recommendations", [])
+
+                for c in llm_result.get("potential_conflicts", []):
+                    dec_id = c.get("decision_id")
+                    matching_dec = next((d for d in related_decisions if d.id == dec_id), None)
+                    if matching_dec:
+                        conflicts.append(
+                            PotentialConflict(
+                                decision_id=matching_dec.id,
+                                decision_title=matching_dec.decision,
+                                status=matching_dec.status,
+                                conflict_risk=c.get("conflict_risk", "high").lower(),
+                                explanation=c.get("explanation", "Potential architectural drift or rejected alternative reintroduced."),
+                                affected_files=c.get("affected_files") or changed_files,
+                                evidence_snippet=c.get("evidence_snippet") or "; ".join(matching_dec.evidence[:1]),
+                                recommendation=c.get("recommendation", "Review historical context before approving."),
+                                source_url=matching_dec.source_url,
+                            )
+                        )
+
+        # Deterministic heuristic fallback check for rejected alternatives
+        if not conflicts and related_decisions:
+            lower_body = combined_text.lower()
+            for d in related_decisions:
+                for rejected in d.rejected_alternatives or []:
+                    if rejected.lower() in lower_body:
+                        conflicts.append(
+                            PotentialConflict(
+                                decision_id=d.id,
+                                decision_title=d.decision,
+                                status=d.status,
+                                conflict_risk="high",
+                                explanation=f"Simulated PR introduces or references '{rejected}', which was previously rejected in decision: '{d.decision}'.",
+                                affected_files=changed_files or d.code_references or ["architecture"],
+                                evidence_snippet="; ".join(d.evidence[:1]) if d.evidence else d.context,
+                                recommendation=f"Review historical discussion at {d.source_url} to ensure valid justification for reconsidering {rejected}.",
+                                source_url=d.source_url,
+                            )
+                        )
+                        overall_risk = "high"
+
+        return PRAnalyzeResponse(
+            pr_number=0,
+            pr_title=title,
+            pr_url="",
+            author="Simulated Developer",
+            state="open",
+            changed_files=changed_files,
+            summary=summary,
+            related_decisions=[DecisionResponse.model_validate(d) for d in related_decisions],
+            potential_conflicts=conflicts,
+            overall_risk=overall_risk,
+            recommendations=recommendations or ["Verify that historical constraints still apply before adopting."],
+        )
+
 
 pr_agent = PRIntelligenceAgent()
