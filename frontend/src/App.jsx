@@ -8,19 +8,55 @@ import PRIntelligencePage from './pages/PRIntelligencePage';
 import apiService from './services/api';
 import { X, Loader2 } from 'lucide-react';
 
+const VALID_TABS = ['dashboard', 'ask', 'decisions', 'pr'];
+
+function getInitialTab() {
+  const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+  if (VALID_TABS.includes(hash)) {
+    return hash;
+  }
+  const saved = localStorage.getItem('decisiontrail_active_tab');
+  if (saved && VALID_TABS.includes(saved)) {
+    return saved;
+  }
+  return 'dashboard';
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTabState] = useState(getInitialTab);
   const [repositories, setRepositories] = useState([]);
   const [currentRepo, setCurrentRepo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
 
+  const setActiveTab = (tab) => {
+    if (VALID_TABS.includes(tab)) {
+      setActiveTabState(tab);
+      window.location.hash = `#/${tab}`;
+      localStorage.setItem('decisiontrail_active_tab', tab);
+    }
+  };
+
+  const handleSelectRepo = (repo) => {
+    setCurrentRepo(repo);
+    if (repo?.id) {
+      localStorage.setItem('decisiontrail_selected_repo_id', repo.id.toString());
+    }
+  };
+
   const fetchRepositories = async () => {
     try {
       const repos = await apiService.listRepositories();
       setRepositories(repos);
-      if (repos.length > 0 && !currentRepo) {
-        setCurrentRepo(repos[0]);
+      if (repos.length > 0) {
+        const savedRepoId = localStorage.getItem('decisiontrail_selected_repo_id');
+        const matched = savedRepoId ? repos.find((r) => r.id === parseInt(savedRepoId, 10)) : null;
+        if (matched) {
+          setCurrentRepo(matched);
+        } else if (!currentRepo) {
+          setCurrentRepo(repos[0]);
+          localStorage.setItem('decisiontrail_selected_repo_id', repos[0].id.toString());
+        }
       }
     } catch (err) {
       console.error('Error fetching repositories:', err);
@@ -33,13 +69,31 @@ export default function App() {
     fetchRepositories();
   }, []);
 
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+      if (VALID_TABS.includes(hash)) {
+        setActiveTabState(hash);
+        localStorage.setItem('decisiontrail_active_tab', hash);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    const currentHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+    if (!VALID_TABS.includes(currentHash)) {
+      window.location.hash = `#/${activeTab}`;
+    }
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [activeTab]);
+
   const handleConnected = (newRepo) => {
     setRepositories((prev) => {
       const exists = prev.find((r) => r.id === newRepo.id);
       if (exists) return prev.map((r) => (r.id === newRepo.id ? newRepo : r));
       return [newRepo, ...prev];
     });
-    setCurrentRepo(newRepo);
+    handleSelectRepo(newRepo);
     setActiveTab('dashboard');
     setIsConnectModalOpen(false);
   };
@@ -71,7 +125,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         currentRepo={currentRepo}
         repositories={repositories}
-        onSelectRepo={(repo) => setCurrentRepo(repo)}
+        onSelectRepo={handleSelectRepo}
         onOpenConnectModal={() => setIsConnectModalOpen(true)}
       />
 
