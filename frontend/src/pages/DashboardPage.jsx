@@ -26,37 +26,12 @@ import {
 } from 'lucide-react';
 import apiService from '../services/api';
 
-const SAMPLE_PRESETS = [
-  {
-    name: 'SQLite vs PostgreSQL',
-    title: 'SQLite WAL vs PostgreSQL for Local Engine',
-    text: "In discussion #48, maintainer @arun noted: 'PostgreSQL adds too much devops overhead for a zero-config single-node tool. We evaluated Postgres and MongoDB, but rejected both. We decided to retain SQLite with WAL mode enabled in app/database.py to achieve concurrent reads without server management.'"
-  },
-  {
-    name: 'Zustand vs Redux',
-    title: 'Zustand State Management Migration',
-    text: "PR #82 discussion: We evaluated Redux Toolkit and React Context. Redux was rejected due to excessive boilerplate and bundle overhead (+45KB). Context triggered re-renders across the whole component tree. We accepted Zustand for lightweight reactive store in src/store/memoryStore.ts."
-  },
-  {
-    name: 'FastAPI vs Celery',
-    title: 'Background Job Worker Selection',
-    text: "Issue #104: We debated using Celery with Redis for background indexing. We rejected Celery because requiring a Redis daemon complicates dockerless local development. We decided to use FastAPI native BackgroundTasks with an internal queue for indexing jobs."
-  }
-];
-
 export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }) {
   const [statusData, setStatusData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [syncingGithub, setSyncingGithub] = useState(false);
   const [syncNotice, setSyncNotice] = useState('');
-
-  // Live Extraction Playground State
-  const [playgroundTitle, setPlaygroundTitle] = useState(SAMPLE_PRESETS[0].title);
-  const [playgroundText, setPlaygroundText] = useState(SAMPLE_PRESETS[0].text);
-  const [extracting, setExtracting] = useState(false);
-  const [extractResult, setExtractResult] = useState(null);
-  const [extractError, setExtractError] = useState(null);
 
   const statusDataRef = useRef(statusData);
   useEffect(() => {
@@ -130,35 +105,6 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
     } catch (err) {
       console.error('Error resetting status:', err);
     }
-  };
-
-  const handleRunLiveExtraction = async () => {
-    if (!currentRepo || !playgroundText.trim()) return;
-    setExtracting(true);
-    setExtractError(null);
-    setExtractResult(null);
-
-    try {
-      const res = await apiService.quickExtractDecision(currentRepo.id, {
-        title: playgroundTitle,
-        text: playgroundText
-      });
-      setExtractResult(res);
-      await fetchStatus();
-      if (onRefreshRepo) onRefreshRepo();
-    } catch (err) {
-      console.error('Extraction error:', err);
-      setExtractError(err.response?.data?.detail || 'Extraction failed. Please check backend connection.');
-    } finally {
-      setExtracting(false);
-    }
-  };
-
-  const handleApplyPreset = (preset) => {
-    setPlaygroundTitle(preset.title);
-    setPlaygroundText(preset.text);
-    setExtractResult(null);
-    setExtractError(null);
   };
 
   if (!currentRepo) {
@@ -467,184 +413,6 @@ export default function DashboardPage({ currentRepo, onNavigate, onRefreshRepo }
             title={`Proposed: ${proposedCount} (${pctProposed}%)`}
           />
         </div>
-      </div>
-
-      {/* ⚡ LIVE DECISION EXTRACTION PLAYGROUND */}
-      <div className="bg-gradient-to-br from-slate-900 via-indigo-950/20 to-slate-900 border border-indigo-500/40 rounded-2xl p-6 sm:p-7 shadow-2xl space-y-5 relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center space-x-2">
-              <Zap className="h-5 w-5 text-amber-400" />
-              <h2 className="text-lg font-bold text-white tracking-tight">
-                Live Decision Extraction Playground
-              </h2>
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Gemini 3.1 Live
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Extract architectural decisions, trade-offs, and rejected alternatives live from any developer discussion text or PR snippet.
-            </p>
-          </div>
-
-          {/* Quick presets */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] text-slate-500 font-mono">1-Click Presets:</span>
-            {SAMPLE_PRESETS.map((preset, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleApplyPreset(preset)}
-                className="px-2.5 py-1 text-xs rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/80 hover:border-indigo-500/50 transition-all font-medium"
-              >
-                {preset.name}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Input Textarea & Title */}
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Discussion Topic / Context Title
-            </label>
-            <input
-              type="text"
-              value={playgroundTitle}
-              onChange={(e) => setPlaygroundTitle(e.target.value)}
-              placeholder="e.g. Architectural choice for caching layer"
-              className="w-full px-3.5 py-2 rounded-xl bg-slate-950/70 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-indigo-500 font-mono transition-colors"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-300 mb-1">
-              Discussion / PR Comment Body (Markdown or Raw Text)
-            </label>
-            <textarea
-              rows={4}
-              value={playgroundText}
-              onChange={(e) => setPlaygroundText(e.target.value)}
-              placeholder="Paste any engineering discussion, PR comment, or issue thread here..."
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-slate-200 text-xs focus:outline-none focus:border-indigo-500 font-mono leading-relaxed transition-colors"
-            />
-          </div>
-
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-[11px] text-slate-500 flex items-center space-x-1.5">
-              <Cpu className="h-3.5 w-3.5 text-indigo-400" />
-              <span>Real-time Gemini extraction & 3072-dim vector embedding creation</span>
-            </span>
-
-            <button
-              onClick={handleRunLiveExtraction}
-              disabled={extracting || !playgroundText.trim()}
-              className="flex items-center space-x-2 px-5 py-2.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50"
-            >
-              <Zap className={`h-4 w-4 text-amber-300 ${extracting ? 'animate-spin' : ''}`} />
-              <span>{extracting ? 'Extracting with Gemini...' : '⚡ Extract & Index Live'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Live Extraction Error */}
-        {extractError && (
-          <div className="p-3 bg-red-950/30 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-center space-x-2">
-            <AlertTriangle className="h-4 w-4 text-red-400 flex-shrink-0" />
-            <span>{extractError}</span>
-          </div>
-        )}
-
-        {/* Live Extraction Success Output Card */}
-        {extractResult?.success && extractResult.extracted_decisions?.length > 0 && (
-          <div className="mt-4 p-5 rounded-xl bg-slate-950/90 border border-emerald-500/40 shadow-xl space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
-                  Live Extraction & Vector Indexing Succeeded
-                </span>
-              </div>
-              <span className="text-[11px] font-mono text-slate-400">
-                New Total: <strong className="text-emerald-400">{extractResult.new_total_decisions}</strong> decisions
-              </span>
-            </div>
-
-            {extractResult.extracted_decisions.map((item, idx) => (
-              <div key={idx} className="space-y-3 pt-2 border-t border-slate-800">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full uppercase ${
-                    item.status === 'accepted' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                    item.status === 'rejected' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                    'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                  }`}>
-                    {item.status}
-                  </span>
-                  <h4 className="text-sm font-bold text-white">{item.decision}</h4>
-                </div>
-
-                <p className="text-xs text-slate-300 leading-relaxed">{item.context}</p>
-
-                {/* Reasoning & Alternatives */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                  {item.reasoning?.length > 0 && (
-                    <div className="bg-slate-900/70 p-3 rounded-lg border border-slate-800/80">
-                      <span className="text-[11px] font-semibold text-slate-400 block mb-1">
-                        🎯 Rationale / Trade-offs:
-                      </span>
-                      <ul className="space-y-1">
-                        {item.reasoning.map((r, rIdx) => (
-                          <li key={rIdx} className="text-slate-300 flex items-start space-x-1.5">
-                            <span className="text-emerald-400 font-bold">•</span>
-                            <span>{r}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {item.rejected_alternatives?.length > 0 && (
-                    <div className="bg-slate-900/70 p-3 rounded-lg border border-slate-800/80">
-                      <span className="text-[11px] font-semibold text-rose-400 block mb-1">
-                        ❌ Explicitly Rejected Alternatives:
-                      </span>
-                      <div className="flex flex-wrap gap-1.5 mt-1">
-                        {item.rejected_alternatives.map((alt, aIdx) => (
-                          <span
-                            key={aIdx}
-                            className="px-2 py-0.5 rounded bg-rose-500/10 text-rose-300 border border-rose-500/20 text-[11px] font-mono"
-                          >
-                            {alt}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Code files & evidence */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs text-slate-400">
-                  {item.code_references?.length > 0 && (
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-slate-500 font-mono text-[11px]">Affected Files:</span>
-                      {item.code_references.map((f, fIdx) => (
-                        <span key={fIdx} className="px-1.5 py-0.5 rounded bg-slate-800 text-indigo-300 font-mono text-[11px]">
-                          {f}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <span className="text-emerald-400 text-[11px] font-mono">
-                    ✓ Indexed into SQLite & Vector Memory
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Engine Status & System Monitor */}

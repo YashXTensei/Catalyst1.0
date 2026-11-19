@@ -112,10 +112,8 @@ Extract all distinct decisions as a JSON array matching the required format.
         decision_patterns = [
             "decide", "decision", "adopt", "migrate", "switch to", "replace",
             "deprecate", "reject", "in favor of", "instead of", "rather than",
-            "use ", "add ", "added", "feat:", "feat(", "bump ", "upgrade ", "redesign ",
-            "refactor ", "standardize ", "implement ", "integrate ", "remove ",
-            "connect", "connected", "improve", "improved", "link ", "deploy",
-            "setup", "configure", "pipeline", "model"
+            "use ", "add ", "feat:", "feat(", "bump ", "upgrade ", "redesign ",
+            "refactor ", "standardize ", "implement ", "integrate ", "remove "
         ]
 
         has_decision = any(kw in combined for kw in decision_patterns)
