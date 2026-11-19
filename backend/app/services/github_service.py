@@ -208,12 +208,21 @@ class GitHubService:
     async def fetch_pr_details_and_files(
         self, owner: str, repo: str, pr_number: int
     ) -> Dict[str, Any]:
-        """Fetches PR metadata, diff stats, and changed files."""
+        """
+        Fetches PR metadata and changed files concurrently using asyncio.gather.
+        Filters out lockfiles and build noise to prioritize meaningful code diffs.
+        """
         pr_url = f"{self.BASE_URL}/repos/{owner}/{repo}/pulls/{pr_number}"
         files_url = f"{self.BASE_URL}/repos/{owner}/{repo}/pulls/{pr_number}/files"
 
         async with httpx.AsyncClient(timeout=20.0) as client:
-            pr_resp = await client.get(pr_url, headers=self._get_headers())
+            # Fetch PR details and changed files in parallel
+            pr_resp, files_resp = await asyncio.gather(
+                client.get(pr_url, headers=self._get_headers()),
+                client.get(files_url, headers=self._get_headers()),
+                return_exceptions=False,
+            )
+
             if pr_resp.status_code == 404:
                 raise ValueError(f"Pull Request #{pr_number} not found in {owner}/{repo}.")
             elif pr_resp.status_code != 200:
@@ -221,17 +230,37 @@ class GitHubService:
 
             pr_data = pr_resp.json()
 
-            files_resp = await client.get(files_url, headers=self._get_headers())
             changed_files = []
             patches = []
             if files_resp.status_code == 200:
-                for f in files_resp.json():
-                    filename = f.get("filename")
+                raw_files = files_resp.json()
+                ignored_names = {
+                    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
+                    "pipfile.lock", "composer.lock", "cargo.lock", "gemfile.lock"
+                }
+                ignored_exts = {".lock", ".min.js", ".min.css", ".map", ".svg", ".png", ".jpg", ".jpeg", ".ico"}
+
+                # Separate code files from noise/lockfiles for diff sampling
+                priority_patches = []
+                other_patches = []
+
+                for f in raw_files:
+                    filename = f.get("filename", "")
                     if filename:
                         changed_files.append(filename)
+
                     patch = f.get("patch")
-                    if patch and len(patches) < 5:  # sample first few patches
-                        patches.append(f"File {filename}:\n{patch[:600]}")
+                    if patch:
+                        base_name = filename.lower().split("/")[-1]
+                        is_noise = base_name in ignored_names or any(base_name.endswith(ext) for ext in ignored_exts)
+                        snippet = f"File {filename}:\n{patch[:750]}"
+                        if is_noise:
+                            other_patches.append(snippet)
+                        else:
+                            priority_patches.append(snippet)
+
+                # Prioritize meaningful code patches first (up to 6 files)
+                patches = (priority_patches + other_patches)[:6]
 
             return {
                 "number": pr_number,
@@ -241,7 +270,7 @@ class GitHubService:
                 "state": pr_data.get("state", "open"),
                 "url": pr_data.get("html_url", ""),
                 "changed_files": changed_files,
-                "patches_sample": "\n\n".join(patches),
+                "patches_sample": "\n\n".join(patches) if patches else "No diff snippets available.",
                 "additions": pr_data.get("additions", 0),
                 "deletions": pr_data.get("deletions", 0),
             }

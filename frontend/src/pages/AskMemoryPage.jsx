@@ -12,7 +12,8 @@ import {
   Check,
   Search,
   KeyRound,
-  HelpCircle
+  HelpCircle,
+  RotateCcw
 } from 'lucide-react';
 import apiService from '../services/api';
 import MarkdownRenderer from '../components/MarkdownRenderer';
@@ -133,6 +134,16 @@ export default function AskMemoryPage({ currentRepo }) {
         </div>
 
         <div className="flex items-center space-x-3 text-xs text-slate-400">
+          {history.length > 0 && (
+            <button
+              onClick={() => setHistory([])}
+              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 hover:text-white border border-slate-700 transition-colors"
+              title="Clear conversation history"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Clear Chat</span>
+            </button>
+          )}
           <span className="flex items-center space-x-1.5">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>Question-First Live Retrieval</span>

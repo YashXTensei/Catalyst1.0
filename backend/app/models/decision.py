@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, JSON, Float
 from sqlalchemy.orm import relationship
 from app.database import Base
@@ -29,8 +29,8 @@ class Decision(Base):
     # Store embedding as JSON vector (dynamically sized based on EMBEDDING_MODEL from .env)
     embedding = Column(JSON, nullable=True)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
     repository = relationship("Repository", back_populates="decisions")
