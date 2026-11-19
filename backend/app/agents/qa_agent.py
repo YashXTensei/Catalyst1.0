@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Dict, Any, List
 from sqlalchemy.orm import Session
 from app.models.repository import Repository
@@ -27,6 +28,52 @@ STRICT RULES:
 
 class QuestionAnsweringAgent:
     @staticmethod
+    def _is_conversational_or_greeting(query: str) -> bool:
+        """Detects if query is a greeting, status check, or casual conversation rather than an engineering question."""
+        q = query.strip().lower()
+        words = re.findall(r"\w+", q)
+        if not words:
+            return True
+
+        greetings = {"hello", "hi", "hey", "hola", "namaste", "good morning", "good afternoon", "good evening", "howdy", "sup", "yo"}
+        if len(words) <= 3 and any(w in greetings for w in words):
+            return True
+
+        status_phrases = [
+            "working properly", "is it working", "is this working", "are you working", 
+            "working fine", "all good", "status", "health check", "ping", "test",
+            "kaise ho", "kya chal raha", "works properly"
+        ]
+        if any(sp in q for sp in status_phrases):
+            # Only treat as status check if no specific technical entity is named
+            technical_nouns = ["pr", "issue", "database", "api", "model", "scene", "docker", "redux", "circuit", "breadboard"]
+            if not any(tn in q for tn in technical_nouns):
+                return True
+
+        meta_phrases = [
+            "who are you", "what can you do", "what do you do", "how do you work", 
+            "help me", "help", "thank you", "thanks", "dhanyawad", "bye", "goodbye"
+        ]
+        if any(mp in q for mp in meta_phrases):
+            return True
+
+        return False
+
+    @staticmethod
+    def _has_technical_keywords(query: str) -> bool:
+        """Determines if query contains technical terminology suitable for GitHub on-demand search."""
+        q = query.lower()
+        technical_terms = [
+            "why", "decide", "decision", "alternative", "rejected", "architecture", 
+            "library", "framework", "database", "storage", "api", "backend", "frontend",
+            "component", "standardize", "migrate", "upgrade", "auth", "token", "diff",
+            "fastapi", "react", "redux", "sqlite", "postgres", "docker", "redis", "celery", 
+            "zustand", "vue", "ic", "circuit", "breadboard", "scene", "3d", "trainer", 
+            "op-amp", "fee", "starlight", "lunaria", "dotenv", "yolo", "detection"
+        ]
+        return any(term in q for term in technical_terms)
+
+    @staticmethod
     async def answer_question(
         db: Session,
         repo: Repository,
@@ -34,11 +81,38 @@ class QuestionAnsweringAgent:
     ) -> QuestionResponse:
         """
         Executes Question-First retrieval & answering pipeline:
-        1. Hybrid search on stored repository memory.
-        2. If memory is sparse or lacking high-confidence matches, performs targeted GitHub search on-demand.
-        3. Extracts and persists on-demand decisions to project memory.
+        1. Checks for conversational / greeting intent.
+        2. Hybrid search on stored repository memory.
+        3. If memory is sparse or lacking high-confidence matches, performs targeted GitHub search on-demand.
         4. Synthesizes a factual, citation-backed response.
         """
+        total_repo_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
+
+        # Step 0: Handle conversational greetings and health-check queries directly
+        if QuestionAnsweringAgent._is_conversational_or_greeting(question):
+            sample_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).order_by(Decision.created_at.desc()).limit(3).all()
+            sample_queries = []
+            for d in sample_decisions:
+                sample_queries.append(f"• *\"What was decided regarding: {d.decision}?\"*")
+            sample_text = "\n".join(sample_queries) if sample_queries else "• *\"What were the key architectural decisions made?\"*"
+
+            answer = (
+                f"👋 **Hello! DecisionTrail Intelligence is active and working properly for `{repo.full_name}`.**\n\n"
+                f"Currently, **{total_repo_decisions} architectural decision(s)** are indexed in this repository's vector memory.\n\n"
+                f"You can ask me technical questions about why specific libraries were chosen, what alternatives were rejected, or how components were designed.\n\n"
+                f"💡 **Example questions you can ask right now:**\n{sample_text}"
+            )
+
+            return QuestionResponse(
+                question=question,
+                answer=answer,
+                confidence="high",
+                evidence_found=True,
+                decisions_used=[],
+                citations=[],
+                search_strategy="conversational_greeting",
+            )
+
         search_strategy = "cached_memory"
         top_decisions: List[Decision] = []
 
@@ -46,17 +120,15 @@ class QuestionAnsweringAgent:
         scored_decisions = await memory_service.search_decisions(db, repo.id, question, top_k=5)
         top_decisions = [d for d, score in scored_decisions]
 
-        # Step 2: Question-First On-Demand Search if memory has few or low-confidence results
-        if len(top_decisions) < 2:
+        # Step 2: Question-First On-Demand Search only if technical keywords exist
+        if len(top_decisions) < 2 and QuestionAnsweringAgent._has_technical_keywords(question):
             try:
                 search_strategy = "hybrid_on_demand"
                 logger.info(f"Triggering on-demand search for question: '{question}' in {repo.full_name}")
-                # Extract main search terms from question
                 terms = " ".join([w for w in question.replace("?", "").replace("why", "").replace("was", "").split() if len(w) > 2])
                 discussions = await github_service.search_discussions(repo.owner, repo.name, terms, limit=4)
 
                 for disc in discussions:
-                    # Fetch comments for deeper context
                     comments = await github_service.fetch_comments(repo.owner, repo.name, disc.get("number", 0), limit=5)
                     extracted = await decision_extractor.extract_from_discussion(
                         title=disc.get("title", ""),
@@ -77,30 +149,22 @@ class QuestionAnsweringAgent:
             except Exception as e:
                 logger.warning(f"On-demand targeted search error: {e}")
 
-        # If no decisions found at all, call Gemini for intelligent architectural perspective
+        # Step 3: If no relevant decisions found at all, call Gemini for honest, helpful architectural context
         if not top_decisions:
             logger.info(f"No direct decisions found for '{question}'. Calling Gemini for architectural context.")
-            total_repo_decisions = db.query(Decision).filter(Decision.repo_id == repo.id).count()
 
-            fallback_prompt = f"""You are DecisionTrail's Senior Technical Architect.
-The user is asking a question in the context of the repository '{repo.full_name}' (Description: {repo.description or 'Open source software'}).
-Total decisions indexed in this repository's vector memory: {total_repo_decisions}.
+            fallback_prompt = f"""You are DecisionTrail's Senior Technical Architect for '{repo.full_name}'.
+The user asked: "{question}"
 
-User question: "{question}"
-
-Our repository project memory search found NO specific internal decision or discussion thread matching this query.
+No historical engineering decision, issue discussion, or pull request in this repository matches this question.
 
 YOUR MISSION:
-1. If the question is a conversational, status, or health-check question (e.g. "working properly?", "is this working?", "hello", "status", "test"):
-   - Confirm clearly that DecisionTrail's memory and retrieval engine is online and fully operational for '{repo.full_name}'.
-   - State that currently {total_repo_decisions} decision(s) are indexed in memory for this repository.
-   - If this repo has only 1 decision (e.g., 'Add python-dotenv dependency'), mention it, and remind the user that they can switch to the 'vlabs-iiit-sonepat' repository in the top navigation dropdown to explore 80+ architectural decisions (like Op-Amp LM741 IC, 3D room scenes, FEE lab circuits).
-2. If the question asks about a specific technology, library, or engineering design:
-   - State clearly: "No specific historical engineering decision was recorded in **{repo.full_name}** regarding '{question}'."
-   - Provide an intelligent, helpful architectural perspective based on modern software engineering practices.
-   - Suggest relevant topics that are actually present in this project's memory.
+1. Clearly state upfront:
+   "Mujhe **{repo.full_name}** me is topic ('{question}') se related koi historical engineering decision ya discussion nahi mili."
+2. Provide a helpful, concise standard engineering perspective or explanation based on general software architecture.
+3. If this repository focuses on specific topics, mention what developers can ask about instead.
 
-Keep the response concise, helpful, and developer-friendly.
+Keep it direct, professional, and friendly. Do NOT invent fake decisions.
 """
             llm_fallback_answer = await generate_text(fallback_prompt)
 
@@ -118,22 +182,14 @@ Keep the response concise, helpful, and developer-friendly.
             # Rule-based fallback if LLM is unavailable
             existing_sample = db.query(Decision).filter(Decision.repo_id == repo.id).limit(4).all()
             if existing_sample:
-                topics = set()
-                for ed in existing_sample:
-                    for comp in (ed.affected_components or []):
-                        topics.add(comp)
-                topics_str = ", ".join(list(topics)[:3]) or "Frontend UI, Components, and Core Architecture"
                 sample_list = "\n".join([f"• \"{ed.decision}\"" for ed in existing_sample])
                 answer_text = (
-                    f"No historical decision was found in **{repo.full_name}** regarding '{question}'.\n\n"
-                    f"💡 **Context**: This repository's recorded decisions primarily focus on **{topics_str}**.\n\n"
-                    f"**Topics and decisions you can ask about in this repository:**\n{sample_list}\n\n"
-                    f"*(Try asking a question about one of the above!)*"
+                    f"Mujhe **{repo.full_name}** repository me '{question}' se related koi historical engineering decision nahi mili.\n\n"
+                    f"**Is repository me aap in decisions ke baare me pooch sakte hain:**\n{sample_list}"
                 )
             else:
                 answer_text = (
-                    f"No relevant historical engineering decision or discussion was found in repository "
-                    f"'{repo.full_name}' regarding '{question}'."
+                    f"Mujhe **{repo.full_name}** repository me '{question}' se related koi historical engineering decision nahi mili."
                 )
 
             return QuestionResponse(
@@ -146,7 +202,7 @@ Keep the response concise, helpful, and developer-friendly.
                 search_strategy=search_strategy,
             )
 
-        # Step 3: Construct context for LLM synthesis
+        # Step 4: Construct context for LLM synthesis from genuine matching decisions
         context_blocks = []
         citations: List[Citation] = []
         decisions_used_schemas: List[DecisionResponse] = []
@@ -184,8 +240,28 @@ Keep the response concise, helpful, and developer-friendly.
 Historical Engineering Context from {repo.full_name}:
 {"".join(context_blocks)}
 
-Synthesize a direct, clear, and well-structured answer explaining the decision, rationale, rejected alternatives, and trade-offs. Cite the evidence directly. If evidence is insufficient, state so clearly.
+Synthesize a direct, clear, and well-structured answer explaining the decision, rationale, rejected alternatives, and trade-offs. Cite the evidence directly.
+CRITICAL: If the provided decisions do not actually address the user's question, clearly state:
+"Mujhe is repository me is topic se related koi specific engineering decision nahi mili."
 """
+        raw_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT)
+        answer = raw_answer.strip() if raw_answer else "Unable to synthesize answer from retrieved context."
+
+        # If answer states nothing was found, suppress citations
+        if "nahi mili" in answer or "No relevant historical engineering decision" in answer:
+            citations = []
+            decisions_used_schemas = []
+
+        return QuestionResponse(
+            question=question,
+            answer=answer,
+            confidence="high" if len(top_decisions) >= 2 else "medium",
+            evidence_found=True if citations else False,
+            decisions_used=decisions_used_schemas,
+            citations=citations,
+            search_strategy=search_strategy,
+        )
+
 
         llm_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT)
 

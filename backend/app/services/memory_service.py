@@ -106,7 +106,14 @@ class ProjectMemoryService:
         query_vec = await generate_embedding(query)
         # Extract clean words without punctuation
         raw_words = re.findall(r"\w+", query.lower())
-        stop_words = {"why", "what", "how", "when", "where", "was", "is", "are", "were", "the", "a", "an", "in", "of", "to", "for"}
+        stop_words = {
+            "why", "what", "how", "when", "where", "which", "who", "was", "is", "are", 
+            "were", "been", "the", "a", "an", "in", "of", "to", "for", "with", "on", 
+            "at", "by", "from", "up", "about", "into", "over", "after", "it", "its", 
+            "this", "that", "these", "those", "can", "could", "would", "should", 
+            "working", "work", "works", "properly", "hello", "hi", "hey", "tell", 
+            "show", "give", "please", "you", "your", "project", "repo", "system"
+        }
         query_words = set(w for w in raw_words if len(w) > 2 and w not in stop_words)
 
         scored: List[Tuple[Decision, float]] = []
@@ -133,8 +140,18 @@ class ProjectMemoryService:
             final_score = (0.55 * sem_score) + (0.45 * kw_score)
 
             # High-signal relevance gate:
-            # Must have at least 1 keyword match, or strong semantic similarity (>= 0.55)
-            if kw_matches >= 1 or sem_score >= 0.55:
+            # - If 2+ keywords match: high confidence
+            # - If 1 keyword matches: must also have reasonable semantic alignment (>= 0.40)
+            # - If 0 keywords match: must have strong semantic similarity (>= 0.55)
+            is_relevant = False
+            if kw_matches >= 2:
+                is_relevant = True
+            elif kw_matches == 1 and sem_score >= 0.40:
+                is_relevant = True
+            elif kw_matches == 0 and sem_score >= 0.55:
+                is_relevant = True
+
+            if is_relevant:
                 scored.append((d, final_score))
 
         # Sort descending by score
