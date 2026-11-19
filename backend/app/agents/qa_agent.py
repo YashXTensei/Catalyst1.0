@@ -113,7 +113,7 @@ INSTRUCTIONS:
    - Provide an intelligent, helpful architectural perspective based on modern software engineering practices.
    - If relevant, mention what topics developers can ask about in this repository.
 """
-            llm_fallback_answer = await generate_text(fallback_prompt)
+            llm_fallback_answer = await generate_text(fallback_prompt, subsystem="qa")
 
             if llm_fallback_answer and llm_fallback_answer.strip():
                 return QuestionResponse(
@@ -178,61 +178,30 @@ Historical Engineering Context from {repo.full_name}:
 Synthesize a direct, clear, and well-structured answer explaining the decision, rationale, rejected alternatives, and trade-offs. Cite the evidence directly.
 CRITICAL: If the retrieved context does not actually answer what the user asked, answer naturally and clarify that no specific decision was found for that topic.
 """
-        raw_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT)
-        answer = raw_answer.strip() if raw_answer else "Unable to synthesize answer from retrieved context."
+        raw_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT, subsystem="qa")
+        answer = raw_answer.strip() if raw_answer else ""
 
-        # If answer states nothing was found, suppress citations
-        if "No relevant historical engineering decision" in answer or "koi specific engineering decision nahi mili" in answer:
-            citations = []
-            decisions_used_schemas = []
-
-        return QuestionResponse(
-            question=question,
-            answer=answer,
-            confidence="high" if len(top_decisions) >= 2 else "medium",
-            evidence_found=True if citations else False,
-            decisions_used=decisions_used_schemas,
-            citations=citations,
-            search_strategy=search_strategy,
-        )
-        raw_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT)
-        answer = raw_answer.strip() if raw_answer else "Unable to synthesize answer from retrieved context."
-
-        # If answer states nothing was found, suppress citations
-        if "nahi mili" in answer or "No relevant historical engineering decision" in answer:
-            citations = []
-            decisions_used_schemas = []
-
-        return QuestionResponse(
-            question=question,
-            answer=answer,
-            confidence="high" if len(top_decisions) >= 2 else "medium",
-            evidence_found=True if citations else False,
-            decisions_used=decisions_used_schemas,
-            citations=citations,
-            search_strategy=search_strategy,
-        )
-
-
-        llm_answer = await generate_text(prompt, system_instruction=QA_SYSTEM_PROMPT)
-
-        if not llm_answer or not llm_answer.strip():
-            # Fallback deterministic answer synthesis
+        if not answer:
             primary = top_decisions[0]
             reasons = "; ".join(primary.reasoning) if primary.reasoning else "General consensus"
             rejected = f" Alternatives rejected: {', '.join(primary.rejected_alternatives)}." if primary.rejected_alternatives else ""
-            llm_answer = (
+            answer = (
                 f"Based on historical records, the decision was to **{primary.decision}** (Status: {primary.status}).\n\n"
                 f"**Context**: {primary.context}\n"
                 f"**Key Rationale**: {reasons}.{rejected}\n\n"
                 f"**Evidence**: \"{'; '.join(primary.evidence[:2]) if primary.evidence else primary.context}\""
             )
 
+        # If answer states nothing was found, suppress citations
+        if "No relevant historical engineering decision" in answer or "koi specific engineering decision nahi mili" in answer or "nahi mili" in answer:
+            citations = []
+            decisions_used_schemas = []
+
         return QuestionResponse(
             question=question,
-            answer=llm_answer.strip(),
-            confidence="high" if len(top_decisions) >= 1 else "medium",
-            evidence_found=True,
+            answer=answer,
+            confidence="high" if len(top_decisions) >= 2 else "medium",
+            evidence_found=True if citations else False,
             decisions_used=decisions_used_schemas,
             citations=citations,
             search_strategy=search_strategy,

@@ -32,12 +32,47 @@ class Settings(BaseSettings):
     gemini_api_key: Optional[str] = Field(
         default_factory=lambda: os.getenv("GEMINI_API_KEY")
     )
+    # Dedicated Subsystem Keys (Optional: fall back to gemini_api_key if unset or empty)
+    gemini_api_key_extraction: Optional[str] = Field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY_EXTRACTION")
+    )
+    gemini_api_key_embedding: Optional[str] = Field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY_EMBEDDING")
+    )
+    gemini_api_key_qa: Optional[str] = Field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY_QA")
+    )
+    gemini_api_key_pr: Optional[str] = Field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY_PR")
+    )
     gemini_model: Optional[str] = Field(
         default_factory=lambda: os.getenv("GEMINI_MODEL")
     )
     embedding_model: Optional[str] = Field(
         default_factory=lambda: os.getenv("EMBEDDING_MODEL")
     )
+
+    def get_gemini_key_for(self, subsystem: str = "default") -> Optional[str]:
+        """
+        Returns the subsystem-dedicated Gemini API key if configured and non-empty;
+        otherwise falls back to the primary gemini_api_key.
+        """
+        sub = (subsystem or "default").lower().strip()
+        key = None
+        if sub in ("extraction", "extract", "extractor"):
+            key = self.gemini_api_key_extraction or os.getenv("GEMINI_API_KEY_EXTRACTION")
+        elif sub in ("embedding", "embed", "embeddings"):
+            key = self.gemini_api_key_embedding or os.getenv("GEMINI_API_KEY_EMBEDDING")
+        elif sub in ("qa", "chat", "question"):
+            key = self.gemini_api_key_qa or os.getenv("GEMINI_API_KEY_QA")
+        elif sub in ("pr", "sentinel", "drift"):
+            key = self.gemini_api_key_pr or os.getenv("GEMINI_API_KEY_PR")
+
+        if key and key.strip():
+            return key.strip()
+
+        fallback = self.gemini_api_key or os.getenv("GEMINI_API_KEY")
+        return fallback.strip() if fallback else None
 
     # GitHub API Configuration: strictly from .env
     github_token: Optional[str] = Field(

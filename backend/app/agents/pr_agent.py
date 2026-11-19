@@ -113,7 +113,11 @@ Historical Decisions to compare against:
 
 Analyze and return JSON according to instructions.
 """
-            llm_result = await generate_json(prompt, system_instruction=PR_ANALYSIS_SYSTEM_INSTRUCTION)
+            llm_result = await generate_json(
+                prompt,
+                system_instruction=PR_ANALYSIS_SYSTEM_INSTRUCTION,
+                subsystem="pr",
+            )
             if isinstance(llm_result, dict):
                 summary = llm_result.get("summary", summary)
                 overall_risk = llm_result.get("overall_risk", "none").lower()

@@ -64,7 +64,11 @@ Extract all distinct decisions as a JSON array matching the required format.
         decisions: List[Dict[str, Any]] = []
 
         # 1. Attempt LLM extraction
-        llm_output = await generate_json(prompt, system_instruction=EXTRACTION_SYSTEM_INSTRUCTION)
+        llm_output = await generate_json(
+            prompt,
+            system_instruction=EXTRACTION_SYSTEM_INSTRUCTION,
+            subsystem="extraction",
+        )
         if isinstance(llm_output, list):
             for d in llm_output:
                 if isinstance(d, dict) and "decision" in d and "context" in d:

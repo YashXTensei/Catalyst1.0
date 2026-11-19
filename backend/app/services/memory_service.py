@@ -51,7 +51,7 @@ class ProjectMemoryService:
             f"Rejected alternatives: {' '.join(decision_data.get('rejected_alternatives', []))}. "
             f"Components: {' '.join(decision_data.get('affected_components', []))}."
         )
-        embedding_vec = await generate_embedding(text_to_embed)
+        embedding_vec = await generate_embedding(text_to_embed, subsystem="embedding")
         # A failed or invalid provider response must never introduce a vector
         # that is incompatible with the configured embedding model.
         if embedding_vec is not None and not is_valid_embedding(embedding_vec):
@@ -103,7 +103,7 @@ class ProjectMemoryService:
         if not decisions:
             return []
 
-        query_vec = await generate_embedding(query)
+        query_vec = await generate_embedding(query, subsystem="embedding")
         # Extract clean words without punctuation
         raw_words = re.findall(r"\w+", query.lower())
         stop_words = {

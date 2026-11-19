@@ -14,21 +14,29 @@ logger = logging.getLogger(__name__)
 # production embeddings.
 EMBEDDING_DIMENSION = 3072
 
-# Cache client instance
-_gemini_client = None
+# Cache client instances keyed by API key
+_gemini_clients: dict = {}
 
 
-def get_gemini_client():
-    global _gemini_client
-    api_key = settings.gemini_api_key or os.getenv("GEMINI_API_KEY")
-    if _gemini_client is None and api_key:
+def get_gemini_client(subsystem: str = "default", api_key: Optional[str] = None):
+    """
+    Returns an initialized GenAI client for the specified subsystem or API key.
+    Subsystem-specific keys fall back to GEMINI_API_KEY when unset.
+    """
+    global _gemini_clients
+    target_key = api_key or settings.get_gemini_key_for(subsystem)
+    if not target_key:
+        return None
+
+    if target_key not in _gemini_clients:
         try:
             from google import genai
-            _gemini_client = genai.Client(api_key=api_key)
+            _gemini_clients[target_key] = genai.Client(api_key=target_key)
+            logger.info(f"Initialized Gemini GenAI client for subsystem '{subsystem}'.")
         except Exception as e:
-            logger.error(f"Failed to initialize Gemini GenAI client: {e}")
-            _gemini_client = None
-    return _gemini_client
+            logger.error(f"Failed to initialize Gemini GenAI client for subsystem '{subsystem}': {e}")
+            return None
+    return _gemini_clients.get(target_key)
 
 
 def get_fallback_embedding(text: str, dim: int = EMBEDDING_DIMENSION) -> List[float]:
@@ -65,16 +73,17 @@ def is_valid_embedding(
     return bool(np.isfinite(values).all() and np.linalg.norm(values) > 0)
 
 
-async def generate_embedding(text: str) -> Optional[List[float]]:
+async def generate_embedding(text: str, subsystem: str = "embedding") -> Optional[List[float]]:
     """
     Generates embedding for text using EMBEDDING_MODEL from .env.
+    Uses the dedicated embedding Gemini API key (or primary fallback).
     Returns ``None`` when Gemini cannot produce a valid embedding. This avoids
     silently mixing fallback vectors with vectors from the configured model.
     """
     if not text or not text.strip():
         return None
 
-    client = get_gemini_client()
+    client = get_gemini_client(subsystem=subsystem)
     if client and settings.embedding_model:
         try:
             # Using official google-genai SDK with model from .env

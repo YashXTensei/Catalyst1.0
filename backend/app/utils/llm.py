@@ -38,12 +38,16 @@ def clean_json_response(raw_text: str) -> Dict[str, Any]:
         raise ValueError(f"Invalid JSON from model: {e}")
 
 
-async def generate_json(prompt: str, system_instruction: Optional[str] = None) -> Any:
+async def generate_json(
+    prompt: str,
+    system_instruction: Optional[str] = None,
+    subsystem: str = "default",
+) -> Any:
     """
     Calls Gemini API to generate structured JSON output.
-    Uses model configured in GEMINI_MODEL (.env).
+    Uses model configured in GEMINI_MODEL (.env) and the client for the specified subsystem.
     """
-    client = get_gemini_client()
+    client = get_gemini_client(subsystem=subsystem)
     if not client or not settings.gemini_model:
         return None
 
@@ -67,13 +71,20 @@ async def generate_json(prompt: str, system_instruction: Optional[str] = None) -
             return clean_json_response(response.text)
         return None
     except Exception as e:
-        logger.error(f"Error calling Gemini for structured JSON (model: {settings.gemini_model}): {e}")
+        logger.error(f"Error calling Gemini for structured JSON ({subsystem}, model: {settings.gemini_model}): {e}")
         return None
 
 
-async def generate_text(prompt: str, system_instruction: Optional[str] = None) -> str:
-    """Calls Gemini API for text generation using GEMINI_MODEL from .env."""
-    client = get_gemini_client()
+async def generate_text(
+    prompt: str,
+    system_instruction: Optional[str] = None,
+    subsystem: str = "qa",
+) -> str:
+    """
+    Calls Gemini API for text generation using GEMINI_MODEL from .env
+    and the client for the specified subsystem (defaults to 'qa').
+    """
+    client = get_gemini_client(subsystem=subsystem)
     if not client or not settings.gemini_model:
         return ""
 
@@ -93,5 +104,5 @@ async def generate_text(prompt: str, system_instruction: Optional[str] = None) -
         )
         return response.text if response else ""
     except Exception as e:
-        logger.error(f"Error calling Gemini for text generation (model: {settings.gemini_model}): {e}")
+        logger.error(f"Error calling Gemini for text generation ({subsystem}, model: {settings.gemini_model}): {e}")
         return ""
