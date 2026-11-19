@@ -72,6 +72,11 @@ export const apiService = {
     const res = await api.get('/benchmark');
     return res.data;
   },
+
+  runLivePEPExtraction: async (pepNumber) => {
+    const res = await api.post(`/benchmark/run-live?pep_number=${encodeURIComponent(pepNumber)}`);
+    return res.data;
+  },
 };
 
 export default apiService;
