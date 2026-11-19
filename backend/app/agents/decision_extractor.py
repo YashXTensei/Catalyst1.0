@@ -9,12 +9,13 @@ EXTRACTION_SYSTEM_INSTRUCTION = """You are DecisionTrail's Senior Engineering De
 Your mission is to extract factual, evidence-backed engineering and architectural decisions from software discussions (issues, pull requests, reviews, comments).
 
 CRITICAL RULES:
-1. NEVER invent, hallucinate, or assume decisions, reasoning, or alternatives.
-2. Every item in 'reasoning' and 'rejected_alternatives' must be grounded in direct statements from the discussion text.
-3. 'evidence' MUST be exact or near-verbatim quotes/excerpts from the text supporting the decision.
-4. 'code_references' must only include real file names or paths mentioned in the text. If none are mentioned, return an empty array [].
-5. If the discussion does NOT reach a clear decision, or evidence is ambiguous/insufficient, mark "status": "uncertain" or return an empty list [] if no decision was discussed at all.
-6. Possible statuses: "accepted", "rejected", "proposed", "deprecated", "uncertain".
+1. NEVER invent or hallucinate decisions, reasoning, or alternatives not grounded in the text.
+2. If the discussion text or PR title clearly states a concrete technical change or integration (such as adding a dependency, connecting frontend to deployed backend, integrating maps, standardizing detection interfaces, or adopting a library), extract it as an accepted engineering decision.
+3. Every item in 'reasoning' and 'rejected_alternatives' must be grounded in direct statements from the discussion or PR title.
+4. 'evidence' MUST be exact or near-verbatim quotes/excerpts from the text supporting the decision.
+5. 'code_references' must only include real file names or paths mentioned in the text. If none are mentioned, return an empty array [].
+6. If the discussion does NOT reach a clear decision, or evidence is ambiguous/insufficient, mark "status": "uncertain" or return an empty list [] only if the PR is purely trivial maintenance with zero technical meaning (e.g. whitespace cleanup).
+7. Possible statuses: "accepted", "rejected", "proposed", "deprecated", "uncertain".
 
 Output a JSON array of decision objects adhering to this schema:
 [
@@ -111,8 +112,10 @@ Extract all distinct decisions as a JSON array matching the required format.
         decision_patterns = [
             "decide", "decision", "adopt", "migrate", "switch to", "replace",
             "deprecate", "reject", "in favor of", "instead of", "rather than",
-            "use ", "add ", "feat:", "feat(", "bump ", "upgrade ", "redesign ",
-            "refactor ", "standardize ", "implement ", "integrate ", "remove "
+            "use ", "add ", "added", "feat:", "feat(", "bump ", "upgrade ", "redesign ",
+            "refactor ", "standardize ", "implement ", "integrate ", "remove ",
+            "connect", "connected", "improve", "improved", "link ", "deploy",
+            "setup", "configure", "pipeline", "model"
         ]
 
         has_decision = any(kw in combined for kw in decision_patterns)
@@ -146,14 +149,18 @@ Extract all distinct decisions as a JSON array matching the required format.
                 rejected_alts.append(f"Leaving {parts[1][:40].strip(',.;')}")
 
         # Determine affected component
-        component = "Core"
-        if any(w in combined for w in ["ui", "card", "font", "css", "styling", "page", "hero", "layout"]):
+        component = "Core Architecture"
+        if any(w in combined for w in ["ui", "card", "font", "css", "styling", "page", "hero", "layout", "landing", "frontend"]):
             component = "Frontend UI"
+        elif any(w in combined for w in ["backend", "api", "endpoint", "server", "deploy", "connect"]):
+            component = "Backend & API"
+        elif any(w in combined for w in ["detection", "model", "map", "safety", "analytics"]):
+            component = "Safety Analytics"
         elif any(w in combined for w in ["database", "db", "sql", "storage", "sqlite", "postgres"]):
             component = "Storage & Database"
         elif any(w in combined for w in ["lab", "3d", "trainer", "circuit", "breadboard", "simulator"]):
             component = "Lab Simulations"
-        elif any(w in combined for w in ["deps", "dependency", "bump", "next", "react"]):
+        elif any(w in combined for w in ["deps", "dependency", "dotenv", "bump", "next", "react"]):
             component = "Dependencies"
 
         # Clean decision title
